@@ -1,0 +1,10 @@
+# This directory holds sample .xlsx files used as test fixtures.
+#
+# Files here are created in two ways:
+#   1. Programmatically in conftest.py using openpyxl (preferred — no binary files in Git).
+#   2. Manually for edge cases that are hard to reproduce programmatically.
+#
+# Programmatically created fixtures are always preferred because:
+#   - They document exactly what structure the test depends on.
+#   - They do not bloat the Git repository with binary files.
+#   - They can be inspected and modified without opening Excel.

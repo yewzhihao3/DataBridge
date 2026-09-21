@@ -1,0 +1,3 @@
+# This file exists solely to track the uploads/ directory in Git.
+# The directory itself must exist for the application to store uploads,
+# but its contents (real uploaded files) are excluded by .gitignore.

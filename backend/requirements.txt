@@ -1,0 +1,25 @@
+# Production dependencies.
+# Install with: pip install -r requirements.txt
+
+# ── Web framework ─────────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+
+# ── Validation and settings ───────────────────────────────────────────────────
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+
+# ── Database ──────────────────────────────────────────────────────────────────
+sqlalchemy>=2.0.30
+
+# ── Excel processing ──────────────────────────────────────────────────────────
+openpyxl>=3.1.2
+
+# ── File handling ─────────────────────────────────────────────────────────────
+# python-multipart: required by FastAPI to handle multipart/form-data uploads.
+# Without this, file upload endpoints raise a 422 error at runtime.
+python-multipart>=0.0.9
+aiofiles>=23.2.1
+
+# ── Environment ───────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0

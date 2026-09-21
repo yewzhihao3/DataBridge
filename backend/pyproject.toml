@@ -1,0 +1,29 @@
+# pyproject.toml — Project and tool configuration.
+#
+# This file replaces the old combination of setup.py, setup.cfg, and pytest.ini.
+# All modern Python tooling reads configuration from here.
+
+[tool.pytest.ini_options]
+# Tell pytest where to look for tests.
+testpaths = ["tests"]
+
+# "auto" means every async def test_...() function is treated as an async
+# test automatically. Without this, async tests would be silently skipped.
+asyncio_mode = "auto"
+
+# Add the backend/ directory to sys.path when pytest runs.
+# This makes "from app.utils.cell_reference import ..." work in tests
+# when pytest is invoked from the backend/ directory.
+pythonpath = ["."]
+
+# Display short local variable values in tracebacks — much more useful than
+# the default output when a test fails.
+addopts = ["--tb=short"]
+
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+# Some third-party libraries don't ship type stubs. ignore_missing_imports
+# prevents mypy from failing on those libraries while still checking our code.
+ignore_missing_imports = true
