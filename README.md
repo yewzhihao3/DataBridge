@@ -83,22 +83,22 @@ DataBridge follows a layered architecture with strict separation between HTTP tr
 
 ```mermaid
 flowchart TD
-    Client[HTTP Client / Frontend] -->|Multipart Upload| RouterFiles[app/routers/files.py]
-    Client -->|Template CRUD| RouterTemplates[app/routers/templates.py]
-    Client -->|POST /extract| RouterImports[app/routers/imports.py]
+    Client["HTTP Client / Frontend"] -->|Multipart Upload| RouterFiles["app/routers/files.py"]
+    Client -->|Template CRUD| RouterTemplates["app/routers/templates.py"]
+    Client -->|POST /extract| RouterImports["app/routers/imports.py"]
 
-    subgraph Service Layer (Pure Python)
-        Inspector[services/workbook_inspector.py]
-        CellRef[utils/cell_reference.py]
-        Extractor[services/extractor.py]
-        Normalizer[services/normalizer.py]
-        Validator[services/validator.py]
+    subgraph ServiceLayer["Service Layer (Pure Python)"]
+        Inspector["services/workbook_inspector.py"]
+        CellRef["utils/cell_reference.py"]
+        Extractor["services/extractor.py"]
+        Normalizer["services/normalizer.py"]
+        Validator["services/validator.py"]
     end
 
-    subgraph Database Layer (SQLAlchemy ORM)
-        DB[(SQLite / PostgreSQL)]
-        ModelSourceFile[models/source_file.py]
-        ModelTemplate[models/template.py]
+    subgraph DatabaseLayer["Database Layer (SQLAlchemy ORM)"]
+        DB[("SQLite / PostgreSQL")]
+        ModelSourceFile["models/source_file.py"]
+        ModelTemplate["models/template.py"]
     end
 
     RouterFiles --> Inspector
@@ -127,13 +127,13 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as User / Client
-    participant FilesAPI as /api/v1/files/upload
-    participant Inspector as workbook_inspector.py
-    participant ImportsAPI as /api/v1/imports/extract
-    participant Extractor as extractor.py
-    participant Normalizer as normalizer.py
-    participant Validator as validator.py
+    actor User as "User / Client"
+    participant FilesAPI as "/api/v1/files/upload"
+    participant Inspector as "workbook_inspector.py"
+    participant ImportsAPI as "/api/v1/imports/extract"
+    participant Extractor as "extractor.py"
+    participant Normalizer as "normalizer.py"
+    participant Validator as "validator.py"
 
     User->>FilesAPI: Upload .xlsx File
     FilesAPI->>Inspector: Stream, Hash (SHA-256), Validate Magic Bytes & Inspect
