@@ -27,7 +27,7 @@ Conventional approaches rely on brittle custom scripts or manual data entry. **D
 
 ## 2. Core Features
 
-### Implemented Features (Milestones 1–4)
+### Implemented Features (Milestones 1–5)
 
 * **Safe Workbook Inspection (`workbook_inspector.py`):**
   * Validates file size, extension, and ZIP magic bytes (`PK\x03\x04`).
@@ -61,6 +61,13 @@ Conventional approaches rely on brittle custom scripts or manual data entry. **D
   * Injected reference date (`reference_date`) for deterministic date testing.
   * Abstracted, read-only duplicate invoice checker with database error isolation.
 
+* **Transactional Import Persistence & History (`imports.py`, `models/invoice.py`):**
+  * **Atomic Transactions:** Re-extracts and re-validates data upon confirmation before opening a database transaction.
+  * **Batch Hierarchy:** Creates an `ImportBatch` with parent-child relationship to `InvoiceRecord` and persisted non-fatal `ValidationErrorRecord` entries.
+  * **Explicit Warning Acknowledgment:** Blocks confirmation with `422 Unprocessable Content` if warnings are present unless `acknowledge_warnings=True` is provided.
+  * **History & Detail Auditing:** Provides paginated summary listing (`GET /api/v1/imports`) and full batch inspection (`GET /api/v1/imports/{batch_id}`).
+  * **Safe JSON Serialization:** Stores raw cell extraction provenance and normalized payloads in JSON columns with robust serialization for `Decimal`, dates, formulas, and nulls.
+
 ---
 
 ## 3. Supported Invoice Data Fields
@@ -72,7 +79,7 @@ The current MVP focuses on standard invoice header fields:
 | `company_name` | `text` | Stripped non-empty string. Rejects whitespace-only text. |
 | `invoice_number` | `text` | Stripped non-empty string. Used for duplicate checking. |
 | `invoice_date` | `date` | `YYYY-MM-DD`, `DD/MM/YYYY`, `DD-Mon-YYYY`, Excel serial numbers (`45557`), or custom template format. |
-| `total_amount` | `decimal` | Decimals, integers, currencies (`RM 1,250.50`, `$500.00`), accounting negatives (`(1,250.50)`). |
+| `total_amount` | `decimal` | Decimals, integers, currencies (`RM 1,250.50`, `$500.00`), accounting negatives (`(1,250.50)`). Nullable in DB for optional mappings. |
 | `currency` | `text` | Optional 3-letter currency code or identifier string. |
 
 ---
@@ -85,7 +92,8 @@ DataBridge follows a layered architecture with strict separation between HTTP tr
 flowchart TD
     Client["HTTP Client / Frontend"] -->|Multipart Upload| RouterFiles["app/routers/files.py"]
     Client -->|Template CRUD| RouterTemplates["app/routers/templates.py"]
-    Client -->|POST /extract| RouterImports["app/routers/imports.py"]
+    Client -->|POST /extract & /confirm| RouterImports["app/routers/imports.py"]
+    Client -->|GET /imports & /imports/:id| RouterImports
 
     subgraph ServiceLayer["Service Layer (Pure Python)"]
         Inspector["services/workbook_inspector.py"]
@@ -99,6 +107,7 @@ flowchart TD
         DB[("SQLite / PostgreSQL")]
         ModelSourceFile["models/source_file.py"]
         ModelTemplate["models/template.py"]
+        ModelInvoice["models/invoice.py"]
     end
 
     RouterFiles --> Inspector
@@ -108,6 +117,7 @@ flowchart TD
     Extractor --> CellRef
     Extractor --> Normalizer
     RouterImports --> Validator
+    RouterImports --> ModelInvoice
 ```
 
 ### Module Responsibilities
@@ -115,8 +125,8 @@ flowchart TD
 | Directory / Module | Responsibility | Dependencies |
 |---|---|---|
 | `app/routers/` | FastAPI route handlers. Validate request payloads, invoke services, manage DB transactions, and return typed responses. | FastAPI, Pydantic, SQLAlchemy |
-| `app/schemas/` | Pydantic request/response models. Enforces field constraints and cell coordinate syntax validation. | Pydantic |
-| `app/models/` | SQLAlchemy ORM database models (`SourceFile`, `Template`, `TemplateFieldMapping`). | SQLAlchemy |
+| `app/schemas/` | Pydantic request/response models. Enforces field constraints, coordinates, and import persistence schemas. | Pydantic |
+| `app/models/` | SQLAlchemy ORM database models (`SourceFile`, `Template`, `TemplateFieldMapping`, `ImportBatch`, `InvoiceRecord`, `ValidationErrorRecord`). | SQLAlchemy |
 | `app/services/` | Framework-agnostic business logic (`extractor.py`, `normalizer.py`, `validator.py`, `workbook_inspector.py`). | Standard Library, openpyxl |
 | `app/utils/` | Low-level utilities such as `cell_reference.py` for Excel coordinate conversion. | openpyxl (utils only) |
 
@@ -130,10 +140,11 @@ sequenceDiagram
     actor User as "User / Client"
     participant FilesAPI as "/api/v1/files/upload"
     participant Inspector as "workbook_inspector.py"
-    participant ImportsAPI as "/api/v1/imports/extract"
+    participant ImportsAPI as "/api/v1/imports"
     participant Extractor as "extractor.py"
     participant Normalizer as "normalizer.py"
     participant Validator as "validator.py"
+    participant DB as "SQLAlchemy Database"
 
     User->>FilesAPI: Upload .xlsx File
     FilesAPI->>Inspector: Stream, Hash (SHA-256), Validate Magic Bytes & Inspect
@@ -148,9 +159,20 @@ sequenceDiagram
     ImportsAPI->>Validator: Run Business Rules & Duplicate Checks
     Validator-->>ImportsAPI: ValidationReport (is_valid_for_import, issues)
     ImportsAPI-->>User: 200 OK (Preview + Validation Report)
-```
 
-> **Note:** The current workflow generates in-memory previews and validation reports. Final transactional import persistence (`InvoiceRecord`, `ImportBatch`) is part of Milestone 5.
+    User->>ImportsAPI: POST /confirm (file_id, template_id, acknowledge_warnings)
+    ImportsAPI->>Extractor: Re-Extract & Re-Normalize
+    ImportsAPI->>Validator: Re-Validate Business Rules
+    alt Validation Errors Present
+        ImportsAPI-->>User: 422 Unprocessable Content (Fatal Errors, Rollback)
+    else Unacknowledged Warnings Present
+        ImportsAPI-->>User: 422 Unprocessable Content (Acknowledgment Required)
+    else Validation Passed / Warnings Acknowledged
+        ImportsAPI->>DB: Atomic Transaction: Commit ImportBatch + InvoiceRecord + Warnings
+        DB-->>ImportsAPI: batch_id
+        ImportsAPI-->>User: 201 Created (Import Confirmation Response)
+    end
+```
 
 ---
 
@@ -282,6 +304,29 @@ All endpoints are prefixed with `/api/v1` (except the system health check).
     ```
   * **Response:** `200 OK` containing `fields` (provenance list) and `validation_report` (`is_valid_for_import`, `issues`, `normalized_data`).
 
+### Import Confirmation & History
+
+* **`POST /api/v1/imports/confirm`**
+  * **Description:** Re-validates extraction and commits an `ImportBatch` and `InvoiceRecord` in an atomic database transaction. Persists non-fatal validation warnings for auditing.
+  * **Request Body:**
+    ```json
+    {
+      "file_id": 1,
+      "template_id": 1,
+      "acknowledge_warnings": false
+    }
+    ```
+  * **Response:** `201 Created` with `batch_id`, status, imported record summary, and warning count. Returns `422 Unprocessable Content` if fatal errors exist or unacknowledged warnings are present.
+
+* **`GET /api/v1/imports`**
+  * **Description:** Returns paginated list of import batches with summary metadata (record count, warning count, status, timestamps).
+  * **Query Parameters:** `skip` (int, default 0), `limit` (int, default 50).
+  * **Response:** `200 OK` with array of batch summaries.
+
+* **`GET /api/v1/imports/{batch_id}`**
+  * **Description:** Retrieves detailed batch record including child invoice records and historical validation issues.
+  * **Response:** `200 OK` (`404 Not Found` if missing).
+
 ---
 
 ## 8. Technology Stack
@@ -308,17 +353,19 @@ databridge/
 │   │   ├── models/              # SQLAlchemy ORM models
 │   │   │   ├── __init__.py
 │   │   │   ├── source_file.py   # SourceFile model (checksum, stored_filename)
-│   │   │   └── template.py      # Template & TemplateFieldMapping models
+│   │   │   ├── template.py      # Template & TemplateFieldMapping models
+│   │   │   └── invoice.py       # ImportBatch, InvoiceRecord, ValidationErrorRecord models
 │   │   ├── schemas/             # Pydantic request & response schemas
 │   │   │   ├── __init__.py
 │   │   │   ├── source_file.py   # Inspection & preview schemas
 │   │   │   ├── template.py      # Template CRUD & mapping validation schemas
-│   │   │   └── extraction.py    # Extraction provenance & validation report schemas
+│   │   │   ├── extraction.py    # Extraction provenance & validation report schemas
+│   │   │   └── invoice.py       # Import confirmation & history schemas
 │   │   ├── routers/             # FastAPI route controllers
 │   │   │   ├── __init__.py
 │   │   │   ├── files.py         # /api/v1/files endpoints
 │   │   │   ├── templates.py     # /api/v1/templates endpoints
-│   │   │   └── imports.py       # /api/v1/imports endpoints
+│   │   │   └── imports.py       # /api/v1/imports (extract, confirm, history)
 │   │   ├── services/            # Pure Python business logic (decoupled)
 │   │   │   ├── __init__.py
 │   │   │   ├── workbook_inspector.py # Safe file validation & metadata inspection
@@ -341,7 +388,8 @@ databridge/
 │   │       ├── test_health.py
 │   │       ├── test_api_files.py
 │   │       ├── test_api_templates.py
-│   │       └── test_api_imports.py
+│   │       ├── test_api_imports.py
+│   │       └── test_api_imports_persistence.py
 │   ├── uploads/                 # Storage for uploaded workbooks (excluded from Git)
 │   ├── pyproject.toml           # Pytest and Mypy configuration
 │   ├── requirements.txt         # Production dependencies
@@ -432,10 +480,10 @@ The test suite covers:
 * Extraction engine and cell provenance tracking (`test_extractor.py`)
 * Business rule validation, date bounds, and duplicate check isolation (`test_validator.py`)
 * Template Pydantic schemas and coordinate canonicalization (`test_template_schemas.py`)
-* Full HTTP integration tests with transactional rollback & cascade delete checks (`test_api_files.py`, `test_api_templates.py`, `test_api_imports.py`)
+* Full HTTP integration tests with transactional rollback, persistence verification, & cascade delete checks (`test_api_files.py`, `test_api_templates.py`, `test_api_imports.py`, `test_api_imports_persistence.py`)
 
 ```text
-============================= 121 passed in ~1.0s =============================
+============================= 125 passed in ~1.3s =============================
 ```
 
 ---
@@ -446,7 +494,7 @@ The test suite covers:
    Extraction, normalization, and validation logic reside in pure Python functions with zero dependencies on web frameworks or active database sessions. This allows core business logic to be tested in isolation or reused in CLI tools and background workers.
 
 2. **In-Memory Validation Before Persistence:**
-   Validation executes completely in memory on normalized extraction results. The database is never modified during preview, preventing partial or corrupted imports from polluting transaction tables.
+   Validation executes completely in memory on normalized extraction results. The database is never modified during preview, preventing partial or corrupted imports from polluting transaction tables. Confirmation performs atomic persistence only after validating rules and explicit warning acknowledgments.
 
 3. **Cell-Level Provenance:**
    Every extracted field retains its origin (`worksheet`, `cell_ref`, `raw_value`, and `formula_expression`). This provides an audit trail that explains *why* a particular value was parsed.
@@ -455,7 +503,7 @@ The test suite covers:
    Uploads are streamed to a temporary file while calculating a SHA-256 hash. If size limits, magic bytes validation, or database insertion fails, temporary and final files are immediately unlinked from disk and database transactions are rolled back.
 
 5. **Enforced SQLite Foreign Keys:**
-   An engine connection listener attaches `PRAGMA foreign_keys=ON` to every SQLite connection, ensuring `ON DELETE CASCADE` constraints are enforced across template field mappings.
+   An engine connection listener attaches `PRAGMA foreign_keys=ON` to every SQLite connection, ensuring `ON DELETE CASCADE` constraints are enforced across template field mappings and batch records.
 
 ---
 
@@ -465,14 +513,18 @@ The test suite covers:
 * **Mapping Strategy:** Supports single-cell coordinate mappings (`B2`, `F3`). Column-range and table mappings are planned for future milestones.
 * **Scope:** Focused on invoice header data (`company_name`, `invoice_number`, `invoice_date`, `total_amount`, `currency`). Line-item row extraction is not yet implemented.
 * **OpenPyXL Formula Caches:** OpenPyXL reads cached calculation results stored by Excel. Files generated programmatically without formula calculation return uncalculated formula indicators, which DataBridge detects and reports as diagnostic warnings or errors.
-* **Import Persistence:** Extracted data is previewed and validated via API; persistent import confirmation (`ImportBatch`, `InvoiceRecord` tables) is scheduled for Milestone 5.
+* **Concurrency on Duplicate Check:** Duplicate checking is warning-based during validation; multi-user race conditions require future database uniqueness constraints when business policies are finalized.
 
 ---
 
 ## 15. Roadmap
 
-* [ ] **Milestone 5:** Import Confirmation & History (`POST /api/v1/imports/confirm`, `GET /api/v1/imports`, batch traceability, and database persistence).
-* [ ] **Milestone 6:** Modern Web Frontend (Vue 3 + TypeScript + Vite) for visual file upload, template builder, and diagnostic review.
+* [x] **Milestone 1:** Backend Foundation (FastAPI, SQLite, cell reference utilities, workbook inspection).
+* [x] **Milestone 2:** File Upload & Template Management CRUD.
+* [x] **Milestone 3:** Extraction Engine & Deterministic Normalizer.
+* [x] **Milestone 4:** Business Validation Layer & Diagnostic Preview.
+* [x] **Milestone 5:** Transactional Import Persistence & History (`POST /confirm`, `GET /imports`, batch traceability).
+* [ ] **Milestone 6:** Modern Web Frontend (Vue 3 + TypeScript + Vite) for visual file upload, template builder, diagnostic review, and import history.
 * [ ] **Future Milestone:** Column / range-based line-item extraction (tables of line items: item name, quantity, unit price).
 * [ ] **Future Milestone:** AI-assisted field mapping suggestions for unfamiliar Excel layouts.
 * [ ] **Future Milestone:** PostgreSQL production deployment configuration and Docker containerization.

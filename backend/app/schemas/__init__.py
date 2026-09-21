@@ -10,6 +10,13 @@ from app.schemas.extraction import (
     ValidationIssueSchema,
     ValidationReportSchema,
 )
+from app.schemas.import_batch import (
+    ImportBatchDetailResponse,
+    ImportBatchListItem,
+    ImportConfirmRequest,
+    InvoiceRecordRead,
+    ValidationErrorRecordRead,
+)
 from app.schemas.source_file import (
     FileUploadResponse,
     FormulaCellDetailSchema,
@@ -43,5 +50,9 @@ __all__ = [
     "ExtractedFieldSchema",
     "ValidationIssueSchema",
     "ValidationReportSchema",
-    "ExtractionPreviewResponse",
+    "ImportConfirmRequest",
+    "InvoiceRecordRead",
+    "ValidationErrorRecordRead",
+    "ImportBatchListItem",
+    "ImportBatchDetailResponse",
 ]
