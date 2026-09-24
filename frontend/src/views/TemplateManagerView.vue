@@ -49,6 +49,26 @@ const closeForm = () => {
   resetForm()
 }
 
+const customTargetActive = reactive<Record<number, boolean>>({})
+
+const isCanonicalOrEmpty = (field: string | null | undefined): boolean => {
+  if (!field) return true
+  return canonicalFields.value.includes(field)
+}
+
+const handleTargetFieldChange = (event: Event, index: number, mapping: any) => {
+  const value = (event.target as HTMLSelectElement).value
+  if (value === '__custom__') {
+    customTargetActive[index] = true
+    if (isCanonicalOrEmpty(mapping.target_field)) {
+      mapping.target_field = ''
+    }
+  } else {
+    customTargetActive[index] = false
+    mapping.target_field = value
+  }
+}
+
 const addMapping = () => {
   form.field_mappings.push({
     field_name: '',
@@ -62,6 +82,7 @@ const addMapping = () => {
 }
 
 const removeMapping = (index: number) => {
+  delete customTargetActive[index]
   form.field_mappings.splice(index, 1)
 }
 
@@ -399,19 +420,37 @@ onMounted(async () => {
           <label class="form-field">
             <span>Target Field</span>
 
-            <input
-              v-model="mapping.target_field"
-              type="text"
-              list="canonical-fields-list"
-              placeholder="(Auto / Match Field Name or select/type)"
-            />
-            <datalist id="canonical-fields-list">
+            <select
+              :value="
+                isCanonicalOrEmpty(mapping.target_field) &&
+                !customTargetActive[index]
+                  ? mapping.target_field || ''
+                  : '__custom__'
+              "
+              @change="handleTargetFieldChange($event, index, mapping)"
+            >
+              <option value="">(Auto / Match Field Name)</option>
               <option
                 v-for="cf in canonicalFields"
                 :key="cf"
                 :value="cf"
-              />
-            </datalist>
+              >
+                {{ cf }}
+              </option>
+              <option value="__custom__">Custom target field...</option>
+            </select>
+
+            <input
+              v-if="
+                (!isCanonicalOrEmpty(mapping.target_field) &&
+                  mapping.target_field !== '') ||
+                customTargetActive[index]
+              "
+              v-model="mapping.target_field"
+              type="text"
+              placeholder="Enter custom target field name..."
+              style="margin-top: 0.5rem;"
+            />
           </label>
 
           <label class="form-field">
