@@ -948,6 +948,9 @@ onMounted(() => {
 
                   <span>
                     Invoice #{{ record.invoice_number }}
+                    <span v-if="record.source_row_number" class="mono text-muted" style="margin-left: 0.35rem; font-size: 0.75rem;">
+                      (Row {{ record.source_row_number }})
+                    </span>
                   </span>
 
                   <span>

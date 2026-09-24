@@ -10,7 +10,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.constants import CANONICAL_INVOICE_FIELDS
-from app.utils.cell_reference import InvalidCellReference, parse_cell_reference
+from app.utils.cell_reference import (
+    InvalidCellReference,
+    parse_cell_reference,
+    parse_column_reference,
+)
 
 
 # ── Field Mapping Schemas ─────────────────────────────────────────────────────
@@ -19,9 +23,9 @@ from app.utils.cell_reference import InvalidCellReference, parse_cell_reference
 class FieldMappingBase(BaseModel):
     field_name: str = Field(..., min_length=1, max_length=100, description="Standard field identifier")
     target_field: str | None = Field(None, max_length=100, description="Canonical or custom backend field to map to")
-    mapping_type: Literal["cell", "column"] = Field("cell", description="Mapping strategy (only 'cell' in MVP)")
+    mapping_type: Literal["cell", "column"] = Field("cell", description="Mapping strategy ('cell' or 'column')")
     cell_ref: str | None = Field(None, description="Cell reference e.g. 'B2'")
-    column_ref: str | None = Field(None, description="Column letter e.g. 'B' (future)")
+    column_ref: str | None = Field(None, description="Column letter e.g. 'B'")
     is_required: bool = Field(False, description="Whether this field must be present and non-empty")
     data_type: Literal["text", "date", "decimal", "integer"] = Field("text", description="Expected data type")
 
@@ -50,13 +54,13 @@ class FieldMappingBase(BaseModel):
 
     @field_validator("mapping_type")
     @classmethod
-    def validate_mvp_mapping_type(cls, v: str) -> str:
-        if v != "cell":
-            raise ValueError("Only mapping_type='cell' is supported in the current milestone.")
+    def validate_mapping_type(cls, v: str) -> str:
+        if v not in ("cell", "column"):
+            raise ValueError("Only mapping_type 'cell' or 'column' is supported.")
         return v
 
     @model_validator(mode="after")
-    def validate_cell_reference_if_cell_type(self) -> FieldMappingBase:
+    def validate_reference_by_mapping_type(self) -> FieldMappingBase:
         if self.mapping_type == "cell":
             if not self.cell_ref or not self.cell_ref.strip():
                 raise ValueError("cell_ref is required when mapping_type is 'cell'.")
@@ -66,6 +70,13 @@ class FieldMappingBase(BaseModel):
                 self.cell_ref = parsed.to_a1()
             except InvalidCellReference as exc:
                 raise ValueError(f"Invalid cell_ref '{self.cell_ref}': {exc}") from exc
+        elif self.mapping_type == "column":
+            if not self.column_ref or not self.column_ref.strip():
+                raise ValueError("column_ref is required when mapping_type is 'column'.")
+            try:
+                self.column_ref = parse_column_reference(self.column_ref)
+            except InvalidCellReference as exc:
+                raise ValueError(f"Invalid column_ref '{self.column_ref}': {exc}") from exc
         return self
 
 

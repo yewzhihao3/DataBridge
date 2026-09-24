@@ -43,6 +43,7 @@ export interface TemplateFieldMapping {
   target_field?: string | null  // canonical or custom backend field to map to
   mapping_type: 'cell' | 'column' | 'fixed'
   cell_ref?: string
+  column_ref?: string
   is_required: boolean
   data_type: 'text' | 'decimal' | 'date' | 'integer'
   date_format?: string
@@ -54,6 +55,8 @@ export interface TemplateSummary {
   description?: string | null
   file_type: string
   worksheet: string
+  header_row?: number | null
+  data_start_row?: number | null
   mapping_count: number
   created_at: string
   updated_at: string
@@ -65,6 +68,8 @@ export interface TemplateDetail {
   description?: string | null
   file_type: string
   worksheet: string
+  header_row?: number | null
+  data_start_row?: number | null
   field_mappings: TemplateFieldMapping[]
   created_at: string
   updated_at: string
@@ -75,6 +80,8 @@ export interface TemplateCreate {
   description?: string
   file_type: string
   worksheet: string
+  header_row?: number | null
+  data_start_row?: number | null
   field_mappings: TemplateFieldMapping[]
 }
 
@@ -124,12 +131,26 @@ export interface ValidationReport {
   normalized_data: Record<string, any>
 }
 
+export interface RowExtractionPreview {
+  source_row_number: number
+  fields: ExtractedField[]
+  has_errors: boolean
+  error_count: number
+  warning_count: number
+  errors: ExtractionError[]
+  warnings: string[]
+  normalized_data: Record<string, any>
+}
+
 export interface ExtractionPreviewResponse {
   file_id: number
   template_id: number
   template_name: string
   target_worksheet: string
+  is_multi_record?: boolean
+  record_count?: number
   fields: ExtractedField[]
+  records?: RowExtractionPreview[]
   has_errors: boolean
   error_count: number
   warning_count: number
@@ -155,6 +176,7 @@ export interface InvoiceRecordRead {
   total_amount?: number | null
   currency?: string | null
   source_worksheet: string
+  source_row_number?: number | null
   custom_fields?: Record<string, any> | null
   created_at: string
 }

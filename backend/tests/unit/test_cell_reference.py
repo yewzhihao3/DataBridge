@@ -34,6 +34,7 @@ from app.utils.cell_reference import (
     CellReference,
     InvalidCellReference,
     parse_cell_reference,
+    parse_column_reference,
 )
 
 
@@ -292,3 +293,23 @@ class TestExceptionHierarchy:
     def test_invalid_cell_reference_is_catchable_as_its_own_type(self) -> None:
         with pytest.raises(InvalidCellReference):
             parse_cell_reference("")
+
+
+class TestColumnReferenceParsing:
+    def test_valid_column_letters(self) -> None:
+        assert parse_column_reference("A") == "A"
+        assert parse_column_reference("b") == "B"
+        assert parse_column_reference("$c") == "C"
+        assert parse_column_reference("AA") == "AA"
+        assert parse_column_reference(" xfd ") == "XFD"
+
+    def test_invalid_column_letters(self) -> None:
+        with pytest.raises(InvalidCellReference):
+            parse_column_reference("123")
+        with pytest.raises(InvalidCellReference):
+            parse_column_reference("A1")
+        with pytest.raises(InvalidCellReference):
+            parse_column_reference("")
+        with pytest.raises(InvalidCellReference):
+            parse_column_reference(None)
+

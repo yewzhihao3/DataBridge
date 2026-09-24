@@ -23,6 +23,12 @@ def run_migrations(db_path: str):
             cursor.execute("ALTER TABLE invoice_records ADD COLUMN custom_fields JSON")
         else:
             print("custom_fields already exists in invoice_records.")
+
+        if 'source_row_number' not in invoice_records_cols:
+            print("Adding source_row_number to invoice_records...")
+            cursor.execute("ALTER TABLE invoice_records ADD COLUMN source_row_number INTEGER")
+        else:
+            print("source_row_number already exists in invoice_records.")
             
         # Check current columns in template_field_mappings
         cursor.execute("PRAGMA table_info(template_field_mappings)")

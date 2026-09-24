@@ -16,6 +16,7 @@ class DummyMapping:
     field_name: str
     mapping_type: str = "cell"
     cell_ref: str | None = None
+    column_ref: str | None = None
     is_required: bool = False
     data_type: str = "text"
 
@@ -24,6 +25,8 @@ class DummyMapping:
 class DummyTemplate:
     name: str = "Test Template"
     worksheet: str | None = None
+    header_row: int | None = 1
+    data_start_row: int | None = 2
     date_format: str | None = None
     field_mappings: list[DummyMapping] | None = None
 
@@ -152,7 +155,7 @@ class TestExtractorEngine:
         template = DummyTemplate(
             worksheet="Invoice",
             field_mappings=[
-                DummyMapping("column_field", "column", "B", is_required=False),
+                DummyMapping("unknown_field", "unsupported", "B2", is_required=False),
                 DummyMapping("missing_ref_field", "cell", "", is_required=False),
             ],
         )

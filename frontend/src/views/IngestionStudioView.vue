@@ -204,6 +204,8 @@ const workflowSteps = [
       <ExtractionPreviewTable
         :fields="previewResult.fields"
         :target-worksheet="previewResult.target_worksheet"
+        :is-multi-record="previewResult.is_multi_record"
+        :records="previewResult.records"
       />
 
       <!-- Validation Issues -->

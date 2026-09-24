@@ -88,6 +88,18 @@ class ValidationIssue:
 
 
 @dataclass
+class RowValidationReport:
+    """
+    Validation outcome for a single row in a multi-record extraction.
+    """
+
+    source_row_number: int
+    is_valid: bool
+    issues: list[ValidationIssue] = field(default_factory=list)
+    normalized_data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class ValidationReport:
     """
     Aggregated outcome of validating an extraction result.
@@ -99,6 +111,8 @@ class ValidationReport:
     warning_count: int = 0
     info_count: int = 0
     normalized_data: dict[str, Any] = field(default_factory=dict)
+    is_multi_record: bool = False
+    row_reports: list[RowValidationReport] = field(default_factory=list)
 
 
 # ── Validation Engine ─────────────────────────────────────────────────────────
@@ -130,6 +144,15 @@ def validate_extraction(
     cfg = config or ValidationConfig()
     today = cfg.reference_date or date.today()
     _field_to_target: dict[str, str] = field_to_target or {}
+
+    if extraction_result.is_multi_record:
+        return _validate_multi_record_extraction(
+            extraction_result=extraction_result,
+            cfg=cfg,
+            today=today,
+            _field_to_target=_field_to_target,
+            duplicate_checker=duplicate_checker,
+        )
 
     issues: list[ValidationIssue] = []
     normalized_data: dict[str, Any] = {}
@@ -344,3 +367,257 @@ def validate_extraction(
         info_count=info_cnt,
         normalized_data=normalized_data,
     )
+
+
+def _validate_multi_record_extraction(
+    extraction_result: ExtractionResult,
+    cfg: ValidationConfig,
+    today: date,
+    _field_to_target: dict[str, str],
+    duplicate_checker: Callable[[str, str], bool] | None,
+) -> ValidationReport:
+    all_issues: list[ValidationIssue] = []
+    row_reports: list[RowValidationReport] = []
+
+    # 1. Capture batch-level extraction errors
+    for err in extraction_result.errors:
+        if err.field_name is None:
+            all_issues.append(
+                ValidationIssue(
+                    rule_id=RULE_EXTRACTION_FAILURE,
+                    field_name=None,
+                    severity="error",
+                    message=err.message,
+                    worksheet=err.worksheet,
+                    cell_ref=err.cell_ref,
+                )
+            )
+
+    seen_in_batch: dict[tuple[str, str], int] = {}
+
+    for row_res in extraction_result.rows:
+        row_issues: list[ValidationIssue] = []
+        row_norm_data: dict[str, Any] = {}
+
+        # Capture row extraction errors
+        for err in row_res.errors:
+            row_issues.append(
+                ValidationIssue(
+                    rule_id=RULE_EXTRACTION_FAILURE,
+                    field_name=err.field_name,
+                    severity="error",
+                    message=err.message,
+                    worksheet=err.worksheet,
+                    cell_ref=err.cell_ref,
+                )
+            )
+
+        for f in row_res.fields:
+            if f.status == "error":
+                if f.is_empty_cell and f.is_required:
+                    row_issues.append(
+                        ValidationIssue(
+                            rule_id=RULE_REQ_FIELD_MISSING,
+                            field_name=f.field_name,
+                            severity="error",
+                            message=f.error_message or f"Required field '{f.field_name}' in Row {row_res.row_number} is empty.",
+                            cell_ref=f.source_cell_ref,
+                            worksheet=f.source_worksheet,
+                            actual_value=f.raw_value,
+                        )
+                    )
+                elif f.is_formula and f.normalized_value is None and f.is_required:
+                    row_issues.append(
+                        ValidationIssue(
+                            rule_id=RULE_EXTRACTION_FAILURE,
+                            field_name=f.field_name,
+                            severity="error",
+                            message=f.error_message or f"Required formula in field '{f.field_name}' at Row {row_res.row_number} has no cached value.",
+                            cell_ref=f.source_cell_ref,
+                            worksheet=f.source_worksheet,
+                            actual_value=f.raw_value,
+                        )
+                    )
+                else:
+                    row_issues.append(
+                        ValidationIssue(
+                            rule_id=RULE_INVALID_DATA_TYPE,
+                            field_name=f.field_name,
+                            severity="error",
+                            message=f.error_message or f"Failed to normalize field '{f.field_name}' at Row {row_res.row_number} as {f.data_type}.",
+                            cell_ref=f.source_cell_ref,
+                            worksheet=f.source_worksheet,
+                            actual_value=f.raw_value,
+                        )
+                    )
+                continue
+
+            if f.status == "empty_optional":
+                norm_key = _field_to_target.get(f.field_name, f.field_name)
+                row_norm_data[norm_key] = None
+                if f.warning_message:
+                    row_issues.append(
+                        ValidationIssue(
+                            rule_id=RULE_EXTRACTION_FAILURE,
+                            field_name=f.field_name,
+                            severity="warning",
+                            message=f.warning_message,
+                            cell_ref=f.source_cell_ref,
+                            worksheet=f.source_worksheet,
+                            actual_value=f.raw_value,
+                        )
+                    )
+                continue
+
+            val = f.normalized_value
+            norm_key = _field_to_target.get(f.field_name, f.field_name)
+            row_norm_data[norm_key] = val
+
+            # Rule: Empty identifier check (company_name, invoice_number)
+            if norm_key in {"company_name", "invoice_number"}:
+                if isinstance(val, str) and not val.strip():
+                    row_issues.append(
+                        ValidationIssue(
+                            rule_id=RULE_EMPTY_IDENTIFIER,
+                            field_name=f.field_name,
+                            severity="error",
+                            message=f"Identifier field '{norm_key}' at Row {row_res.row_number} cannot be empty or whitespace.",
+                            cell_ref=f.source_cell_ref,
+                            worksheet=f.source_worksheet,
+                            actual_value=val,
+                        )
+                    )
+
+            # Rule: Invoice Date rules
+            if f.data_type == "date" and isinstance(val, date):
+                future_limit = today + timedelta(days=cfg.max_future_days)
+                past_limit = today - timedelta(days=cfg.max_past_days)
+
+                if val > future_limit:
+                    row_issues.append(
+                        ValidationIssue(
+                            rule_id=RULE_UNBOUNDED_FUTURE_DATE,
+                            field_name=f.field_name,
+                            severity="warning",
+                            message=f"Invoice date {val.isoformat()} at Row {row_res.row_number} is more than {cfg.max_future_days} days in the future.",
+                            cell_ref=f.source_cell_ref,
+                            worksheet=f.source_worksheet,
+                            actual_value=val.isoformat(),
+                        )
+                    )
+                elif val < past_limit:
+                    row_issues.append(
+                        ValidationIssue(
+                            rule_id=RULE_STALE_INVOICE_DATE,
+                            field_name=f.field_name,
+                            severity="warning",
+                            message=f"Invoice date {val.isoformat()} at Row {row_res.row_number} is more than {cfg.max_past_days} days old.",
+                            cell_ref=f.source_cell_ref,
+                            worksheet=f.source_worksheet,
+                            actual_value=val.isoformat(),
+                        )
+                    )
+
+            # Rule: Amount rules
+            if f.data_type == "decimal" and isinstance(val, Decimal):
+                if val < Decimal("0"):
+                    severity: Severity = "warning" if cfg.allow_negative_amounts else "error"
+                    row_issues.append(
+                        ValidationIssue(
+                            rule_id=RULE_NEGATIVE_AMOUNT,
+                            field_name=f.field_name,
+                            severity=severity,
+                            message=f"Total amount at Row {row_res.row_number} is negative ({val}).",
+                            cell_ref=f.source_cell_ref,
+                            worksheet=f.source_worksheet,
+                            actual_value=float(val),
+                        )
+                    )
+                elif val == Decimal("0"):
+                    severity = "warning" if cfg.allow_zero_amounts else "error"
+                    row_issues.append(
+                        ValidationIssue(
+                            rule_id=RULE_ZERO_AMOUNT,
+                            field_name=f.field_name,
+                            severity=severity,
+                            message=f"Total amount at Row {row_res.row_number} is zero (0.00).",
+                            cell_ref=f.source_cell_ref,
+                            worksheet=f.source_worksheet,
+                            actual_value=0.0,
+                        )
+                    )
+
+        # Duplicate detection for this row
+        comp_name = row_norm_data.get("company_name")
+        inv_num = row_norm_data.get("invoice_number")
+        if comp_name and inv_num and isinstance(comp_name, str) and isinstance(inv_num, str):
+            comp_clean = comp_name.strip()
+            inv_clean = inv_num.strip()
+            dedup_key = (comp_clean.lower(), inv_clean.lower())
+
+            # 1. Intra-batch duplicate check
+            if dedup_key in seen_in_batch:
+                first_row = seen_in_batch[dedup_key]
+                row_issues.append(
+                    ValidationIssue(
+                        rule_id=RULE_DUPLICATE_INVOICE,
+                        field_name="invoice_number",
+                        severity=cfg.duplicate_severity,
+                        message=f"Invoice number '{inv_clean}' for company '{comp_clean}' at Row {row_res.row_number} is a duplicate of Row {first_row} in this import batch.",
+                        worksheet=extraction_result.target_worksheet,
+                        actual_value=inv_clean,
+                    )
+                )
+            else:
+                seen_in_batch[dedup_key] = row_res.row_number
+
+            # 2. Database duplicate check
+            if cfg.check_duplicates and duplicate_checker is not None:
+                try:
+                    if duplicate_checker(comp_clean, inv_clean):
+                        row_issues.append(
+                            ValidationIssue(
+                                rule_id=RULE_DUPLICATE_INVOICE,
+                                field_name="invoice_number",
+                                severity=cfg.duplicate_severity,
+                                message=f"Invoice number '{inv_clean}' for company '{comp_clean}' at Row {row_res.row_number} has already been imported previously.",
+                                worksheet=extraction_result.target_worksheet,
+                                actual_value=inv_clean,
+                            )
+                        )
+                except Exception as exc:
+                    row_issues.append(
+                        ValidationIssue(
+                            rule_id=RULE_DUPLICATE_INVOICE,
+                            field_name="invoice_number",
+                            severity="error",
+                            message=f"Failed to verify invoice uniqueness at Row {row_res.row_number}: {exc}",
+                        )
+                    )
+
+        row_error_cnt = sum(1 for i in row_issues if i.severity == "error")
+        row_reports.append(
+            RowValidationReport(
+                source_row_number=row_res.row_number,
+                is_valid=(row_error_cnt == 0),
+                issues=row_issues,
+                normalized_data=row_norm_data,
+            )
+        )
+        all_issues.extend(row_issues)
+
+    error_cnt = sum(1 for i in all_issues if i.severity == "error")
+    warning_cnt = sum(1 for i in all_issues if i.severity == "warning")
+    info_cnt = sum(1 for i in all_issues if i.severity == "info")
+
+    return ValidationReport(
+        is_valid_for_import=(error_cnt == 0),
+        issues=all_issues,
+        error_count=error_cnt,
+        warning_count=warning_cnt,
+        info_count=info_cnt,
+        normalized_data={},
+        is_multi_record=True,
+        row_reports=row_reports,
+    )
+

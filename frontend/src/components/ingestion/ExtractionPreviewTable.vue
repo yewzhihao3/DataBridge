@@ -1,12 +1,21 @@
 <script setup lang="ts">
-import { Code, FileSpreadsheet } from 'lucide-vue-next'
+import { Code, FileSpreadsheet, Layers } from 'lucide-vue-next'
 import StatusBadge from '@/components/common/StatusBadge.vue'
-import type { ExtractedField } from '@/types/api'
+import type { ExtractedField, RowExtractionPreview } from '@/types/api'
 
-defineProps<{
-  fields: ExtractedField[]
-  targetWorksheet: string
-}>()
+withDefaults(
+  defineProps<{
+    fields?: ExtractedField[]
+    targetWorksheet: string
+    isMultiRecord?: boolean
+    records?: RowExtractionPreview[]
+  }>(),
+  {
+    fields: () => [],
+    isMultiRecord: false,
+    records: () => [],
+  },
+)
 
 function formatRawValue(val: any): string {
   if (val === null || val === undefined) return '<Empty>'
@@ -14,9 +23,9 @@ function formatRawValue(val: any): string {
   return String(val)
 }
 
-function formatNormalizedValue(val: any, field: ExtractedField): string {
+function formatNormalizedValue(val: any, field?: ExtractedField): string {
   if (val === null || val === undefined) return '—'
-  if (field.data_type === 'decimal' && typeof val === 'number') {
+  if (field && field.data_type === 'decimal' && typeof val === 'number') {
     return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
   return String(val)
@@ -25,7 +34,19 @@ function formatNormalizedValue(val: any, field: ExtractedField): string {
 
 <template>
   <div class="glass-card preview-card">
-    <div class="preview-header">
+    <!-- Multi-Record Header -->
+    <div v-if="isMultiRecord" class="preview-header">
+      <div>
+        <h3 class="preview-title">Multi-Record Data Rows & Cell Provenance</h3>
+        <p class="preview-subtitle">
+          Target worksheet: <span class="mono text-primary">{{ targetWorksheet }}</span>
+        </p>
+      </div>
+      <span class="count-tag">{{ records.length }} Invoice Record(s) Extracted</span>
+    </div>
+
+    <!-- Single-Cell Header -->
+    <div v-else class="preview-header">
       <div>
         <h3 class="preview-title">Extracted Field Values & Cell Provenance</h3>
         <p class="preview-subtitle">
@@ -35,8 +56,66 @@ function formatNormalizedValue(val: any, field: ExtractedField): string {
       <span class="count-tag">{{ fields.length }} Fields Mapped</span>
     </div>
 
-    <!-- Extraction Grid Table -->
-    <div class="table-container">
+    <!-- Multi-Record Row Grid Table -->
+    <div v-if="isMultiRecord" class="table-container">
+      <table class="preview-table">
+        <thead>
+          <tr>
+            <th>Row #</th>
+            <th>Row Provenance</th>
+            <th>Extracted Row Record</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="rec in records"
+            :key="rec.source_row_number"
+            :class="{
+              'row-error': rec.has_errors,
+              'row-warning': rec.warning_count > 0 && !rec.has_errors,
+            }"
+          >
+            <!-- Row Number -->
+            <td class="field-name-cell">
+              <span class="coord-badge mono">
+                <Layers :size="13" class="text-accent" />
+                <span>Row {{ rec.source_row_number }}</span>
+              </span>
+            </td>
+
+            <!-- Cell Provenance List -->
+            <td class="provenance-cell">
+              <div v-for="f in rec.fields" :key="f.field_name" class="coord-badge mono" style="font-size: 0.73rem;">
+                <FileSpreadsheet :size="11" class="text-accent" />
+                <span>{{ f.field_name }}: {{ f.source_cell_ref }}</span>
+              </div>
+            </td>
+
+            <!-- Extracted Record Fields -->
+            <td class="norm-val-cell">
+              <div class="record-data-grid">
+                <div v-for="(val, k) in rec.normalized_data" :key="k" class="data-chip">
+                  <span class="data-key">{{ k }}:</span>
+                  <span class="data-val">{{ formatNormalizedValue(val) }}</span>
+                </div>
+              </div>
+              <div v-for="err in rec.errors" :key="err.message" class="field-error-text">
+                {{ err.message }}
+              </div>
+            </td>
+
+            <!-- Status Badge -->
+            <td>
+              <StatusBadge :status="rec.has_errors ? 'error' : (rec.warning_count > 0 ? 'warning' : 'success')" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Single-Cell Extraction Grid Table -->
+    <div v-else class="table-container">
       <table class="preview-table">
         <thead>
           <tr>
@@ -304,5 +383,31 @@ function formatNormalizedValue(val: any, field: ExtractedField): string {
 .field-warning-text {
   font-size: 0.75rem;
   color: var(--status-warning);
+}
+
+.record-data-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.data-chip {
+  display: inline-flex;
+  gap: 0.25rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+}
+
+.data-key {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.data-val {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 </style>

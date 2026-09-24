@@ -65,17 +65,33 @@ class ValidationReportSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RowExtractionPreviewSchema(BaseModel):
+    source_row_number: int
+    fields: list[ExtractedFieldSchema] = Field(default_factory=list)
+    has_errors: bool
+    error_count: int
+    warning_count: int
+    errors: list[ExtractionErrorSchema] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    normalized_data: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ExtractionPreviewResponse(BaseModel):
     file_id: int
     template_id: int
     template_name: str
     target_worksheet: str
-    fields: list[ExtractedFieldSchema]
+    is_multi_record: bool = False
+    record_count: int = 1
+    fields: list[ExtractedFieldSchema] = Field(default_factory=list)
+    records: list[RowExtractionPreviewSchema] = Field(default_factory=list)
     has_errors: bool
     error_count: int
     warning_count: int
-    errors: list[ExtractionErrorSchema]
-    warnings: list[str]
+    errors: list[ExtractionErrorSchema] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     validation_report: ValidationReportSchema
 
     model_config = ConfigDict(from_attributes=True)

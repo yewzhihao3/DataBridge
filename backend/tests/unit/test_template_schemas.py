@@ -34,12 +34,31 @@ class TestFieldMappingValidation:
                 cell_ref="B0",  # Row 0 does not exist
             )
 
+    def test_valid_column_mapping_is_canonicalized(self) -> None:
+        mapping = FieldMappingCreate(
+            field_name="Invoice_Number",
+            mapping_type="column",
+            column_ref="$b",
+            is_required=True,
+            data_type="text",
+        )
+        assert mapping.field_name == "invoice_number"
+        assert mapping.column_ref == "B"
+
     def test_unsupported_mapping_type_raises_error(self) -> None:
         with pytest.raises(ValidationError):
             FieldMappingCreate(
                 field_name="items",
-                mapping_type="column",  # type: ignore[arg-type]
+                mapping_type="invalid_type",  # type: ignore[arg-type]
                 cell_ref=None,
+            )
+
+    def test_missing_column_ref_for_column_mapping_raises_error(self) -> None:
+        with pytest.raises(ValidationError, match="column_ref is required"):
+            FieldMappingCreate(
+                field_name="total",
+                mapping_type="column",
+                column_ref="",
             )
 
     def test_missing_cell_ref_for_cell_mapping_raises_error(self) -> None:

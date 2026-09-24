@@ -44,6 +44,7 @@ class InvoiceRecordRead(BaseModel):
     total_amount: Decimal | None = None
     currency: str | None = None
     source_worksheet: str
+    source_row_number: int | None = None
     custom_fields: dict[str, Any] | None = None
     created_at: datetime
 

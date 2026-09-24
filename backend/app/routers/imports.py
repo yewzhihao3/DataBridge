@@ -32,6 +32,7 @@ from app.schemas.extraction import (
     ExtractionErrorSchema,
     ExtractionPreviewResponse,
     ExtractionRequest,
+    RowExtractionPreviewSchema,
     ValidationIssueSchema,
     ValidationReportSchema,
 )
@@ -146,11 +147,63 @@ def extract_preview(
             field_to_target=preview_field_to_target if preview_field_to_target else None,
         )
 
+        preview_records: list[RowExtractionPreviewSchema] = []
+        if extraction_result.is_multi_record:
+            row_results_by_num = {r.row_number: r for r in extraction_result.rows}
+            for rr in validation_report.row_reports:
+                row_res = row_results_by_num.get(rr.source_row_number)
+                r_fields = row_res.fields if row_res else []
+                r_errors = row_res.errors if row_res else []
+                r_warnings = row_res.warnings if row_res else []
+                r_has_errors = (not rr.is_valid) or (len(r_errors) > 0)
+
+                preview_records.append(
+                    RowExtractionPreviewSchema(
+                        source_row_number=rr.source_row_number,
+                        fields=[
+                            ExtractedFieldSchema(
+                                field_name=f.field_name,
+                                mapping_type=f.mapping_type,
+                                source_worksheet=f.source_worksheet,
+                                source_cell_ref=f.source_cell_ref,
+                                raw_value=f.raw_value,
+                                data_type=f.data_type,
+                                is_required=f.is_required,
+                                is_empty_cell=f.is_empty_cell,
+                                is_formula=f.is_formula,
+                                formula_expression=f.formula_expression,
+                                normalized_value=f.normalized_value,
+                                status=f.status,
+                                error_message=f.error_message,
+                                warning_message=f.warning_message,
+                            )
+                            for f in r_fields
+                        ],
+                        has_errors=r_has_errors,
+                        error_count=len(r_errors) + sum(1 for i in rr.issues if i.severity == "error"),
+                        warning_count=len(r_warnings) + sum(1 for i in rr.issues if i.severity == "warning"),
+                        errors=[
+                            ExtractionErrorSchema(
+                                field_name=e.field_name,
+                                message=e.message,
+                                worksheet=e.worksheet,
+                                cell_ref=e.cell_ref,
+                                error_type=e.error_type,
+                            )
+                            for e in r_errors
+                        ],
+                        warnings=r_warnings,
+                        normalized_data=rr.normalized_data,
+                    )
+                )
+
         return ExtractionPreviewResponse(
             file_id=source_file.id,
             template_id=template.id,
             template_name=template.name,
             target_worksheet=extraction_result.target_worksheet,
+            is_multi_record=extraction_result.is_multi_record,
+            record_count=len(preview_records) if extraction_result.is_multi_record else 1,
             fields=[
                 ExtractedFieldSchema(
                     field_name=f.field_name,
@@ -169,7 +222,8 @@ def extract_preview(
                     warning_message=f.warning_message,
                 )
                 for f in extraction_result.fields
-            ],
+            ] if not extraction_result.is_multi_record else [],
+            records=preview_records,
             has_errors=extraction_result.has_errors or (not validation_report.is_valid_for_import),
             error_count=extraction_result.error_count + validation_report.error_count,
             warning_count=extraction_result.warning_count + validation_report.warning_count,
@@ -303,70 +357,103 @@ def confirm_import(
         )
 
     # 5. Build and commit database transaction
-    norm_data = validation_report.normalized_data
-
-    # Separate canonical fields from custom fields.
-    # normalized_data keys are already using target_field names (or field_name as fallback).
-    # For legacy templates without target_field, we also try common alias patterns and
-    # a normalized key lookup (lowercase, spaces/hyphens -> underscores).
-    _norm_lookup: dict[str, Any] = {}
-    for _k, _v in norm_data.items():
-        _nk = str(_k).strip().lower().replace(" ", "_").replace("-", "_")
-        _norm_lookup[_nk] = _v
-
-    def _resolve_canonical(primary: str, *aliases: str) -> Any:
-        """Look up a canonical value: exact match, then known aliases, then normalized fallback."""
-        for key in (primary, *aliases):
-            if key in norm_data:
-                return norm_data[key]
-        # Fall back to normalized key match for legacy field names without target_field
-        for key in (primary, *aliases):
-            if key in _norm_lookup:
-                return _norm_lookup[key]
-        return None
-
-    comp_name = _resolve_canonical("company_name", "company") or "Unknown Company"
-    inv_num = _resolve_canonical("invoice_number", "invoice_num") or "Unknown Invoice"
-    inv_date = _resolve_canonical("invoice_date", "date")
-    tot_amt = _resolve_canonical("total_amount", "amount")
-    curr = _resolve_canonical("currency")
-
-    # Keys that normalize to a canonical field name (and known short aliases)
     _norm_canonical_set = {
         str(c).strip().lower().replace(" ", "_").replace("-", "_")
         for c in CANONICAL_INVOICE_FIELDS
     } | {"company", "invoice_num", "date", "amount"}
 
-    # Collect any extra fields into custom_fields JSON column.
-    custom_fields: dict[str, Any] = {}
-    for key, val in norm_data.items():
-        norm_k = str(key).strip().lower().replace(" ", "_").replace("-", "_")
-        if key not in CANONICAL_INVOICE_FIELDS and norm_k not in _norm_canonical_set:
-            custom_fields[key] = val if not hasattr(val, "isoformat") else val.isoformat()
+    def _resolve_row_canonical(norm_data: dict[str, Any], primary: str, *aliases: str) -> Any:
+        _norm_lookup = {
+            str(_k).strip().lower().replace(" ", "_").replace("-", "_"): _v
+            for _k, _v in norm_data.items()
+        }
+        for key in (primary, *aliases):
+            if key in norm_data:
+                return norm_data[key]
+        for key in (primary, *aliases):
+            if key in _norm_lookup:
+                return _norm_lookup[key]
+        return None
 
-    # Serialize raw extractions to JSON for audit trail
-    raw_dict = {f.field_name: f.raw_value for f in extraction_result.fields}
-    raw_json = json.dumps(raw_dict, default=_json_serial)
+    if validation_report.is_multi_record:
+        rec_count = len(validation_report.row_reports)
+        batch = ImportBatch(
+            source_file_id=source_file.id,
+            template_id=template.id,
+            status="imported",
+            record_count=rec_count,
+            warning_count=validation_report.warning_count,
+        )
 
-    batch = ImportBatch(
-        source_file_id=source_file.id,
-        template_id=template.id,
-        status="imported",
-        record_count=1,
-        warning_count=validation_report.warning_count,
-    )
+        rows_by_num = {r.row_number: r for r in extraction_result.rows}
 
-    invoice_record = InvoiceRecord(
-        company_name=str(comp_name),
-        invoice_number=str(inv_num),
-        invoice_date=inv_date,
-        total_amount=tot_amt,
-        currency=curr,
-        source_worksheet=extraction_result.target_worksheet,
-        raw_data=raw_json,
-        custom_fields=custom_fields if custom_fields else None,
-    )
-    batch.invoice_records.append(invoice_record)
+        for rr in validation_report.row_reports:
+            norm_data = rr.normalized_data
+            comp_name = _resolve_row_canonical(norm_data, "company_name", "company") or "Unknown Company"
+            inv_num = _resolve_row_canonical(norm_data, "invoice_number", "invoice_num") or "Unknown Invoice"
+            inv_date = _resolve_row_canonical(norm_data, "invoice_date", "date")
+            tot_amt = _resolve_row_canonical(norm_data, "total_amount", "amount")
+            curr = _resolve_row_canonical(norm_data, "currency")
+
+            custom_fields: dict[str, Any] = {}
+            for key, val in norm_data.items():
+                norm_k = str(key).strip().lower().replace(" ", "_").replace("-", "_")
+                if key not in CANONICAL_INVOICE_FIELDS and norm_k not in _norm_canonical_set:
+                    custom_fields[key] = val if not hasattr(val, "isoformat") else val.isoformat()
+
+            row_res = rows_by_num.get(rr.source_row_number)
+            raw_dict = {f.field_name: f.raw_value for f in row_res.fields} if row_res else {}
+            raw_json = json.dumps(raw_dict, default=_json_serial)
+
+            invoice_record = InvoiceRecord(
+                company_name=str(comp_name),
+                invoice_number=str(inv_num),
+                invoice_date=inv_date,
+                total_amount=tot_amt,
+                currency=curr,
+                source_worksheet=extraction_result.target_worksheet,
+                source_row_number=rr.source_row_number,
+                raw_data=raw_json,
+                custom_fields=custom_fields if custom_fields else None,
+            )
+            batch.invoice_records.append(invoice_record)
+    else:
+        norm_data = validation_report.normalized_data
+        comp_name = _resolve_row_canonical(norm_data, "company_name", "company") or "Unknown Company"
+        inv_num = _resolve_row_canonical(norm_data, "invoice_number", "invoice_num") or "Unknown Invoice"
+        inv_date = _resolve_row_canonical(norm_data, "invoice_date", "date")
+        tot_amt = _resolve_row_canonical(norm_data, "total_amount", "amount")
+        curr = _resolve_row_canonical(norm_data, "currency")
+
+        custom_fields = {}
+        for key, val in norm_data.items():
+            norm_k = str(key).strip().lower().replace(" ", "_").replace("-", "_")
+            if key not in CANONICAL_INVOICE_FIELDS and norm_k not in _norm_canonical_set:
+                custom_fields[key] = val if not hasattr(val, "isoformat") else val.isoformat()
+
+        raw_dict = {f.field_name: f.raw_value for f in extraction_result.fields}
+        raw_json = json.dumps(raw_dict, default=_json_serial)
+
+        batch = ImportBatch(
+            source_file_id=source_file.id,
+            template_id=template.id,
+            status="imported",
+            record_count=1,
+            warning_count=validation_report.warning_count,
+        )
+
+        invoice_record = InvoiceRecord(
+            company_name=str(comp_name),
+            invoice_number=str(inv_num),
+            invoice_date=inv_date,
+            total_amount=tot_amt,
+            currency=curr,
+            source_worksheet=extraction_result.target_worksheet,
+            source_row_number=None,
+            raw_data=raw_json,
+            custom_fields=custom_fields if custom_fields else None,
+        )
+        batch.invoice_records.append(invoice_record)
 
     # Persist historical warning diagnostics
     for issue in validation_report.issues:
@@ -387,6 +474,13 @@ def confirm_import(
         db.commit()
         db.refresh(batch)
 
+        first_raw_dict = None
+        if batch.invoice_records and batch.invoice_records[0].raw_data:
+            try:
+                first_raw_dict = json.loads(batch.invoice_records[0].raw_data)
+            except Exception:
+                first_raw_dict = None
+
         return ImportBatchDetailResponse(
             id=batch.id,
             source_file_id=source_file.id,
@@ -404,7 +498,7 @@ def confirm_import(
                 ValidationErrorRecordRead.model_validate(iss)
                 for iss in batch.validation_issues
             ],
-            raw_data=raw_dict,
+            raw_data=first_raw_dict,
         )
 
     except Exception as exc:

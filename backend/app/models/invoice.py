@@ -95,6 +95,7 @@ class InvoiceRecord(Base):
     total_amount = Column(Numeric(12, 2), nullable=True)
     currency = Column(String(10), nullable=True)
     source_worksheet = Column(String(100), nullable=False)
+    source_row_number = Column(Integer, nullable=True)  # 1-based Excel row number for multi-record imports
     raw_data = Column(Text, nullable=False)  # JSON-encoded dictionary of raw extractions
     custom_fields = Column(JSON, nullable=True)  # Optional JSON data for fields that are not core headers
     created_at = Column(DateTime, server_default=func.now(), nullable=False)

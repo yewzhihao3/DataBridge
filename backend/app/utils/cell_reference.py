@@ -223,3 +223,55 @@ def parse_cell_reference(ref: Any) -> CellReference:
         ) from exc
 
     return CellReference(row=row, col=col, original=ref)
+
+
+# ── Column Reference parsing ──────────────────────────────────────────────────
+
+_COLUMN_REF_PATTERN: re.Pattern[str] = re.compile(r"^\$?([A-Za-z]{1,3})$")
+
+
+def parse_column_reference(ref: Any) -> str:
+    """
+    Parse and validate an Excel column reference string (e.g. 'A', 'B', 'AA', '$B').
+
+    Args:
+        ref: The column reference to parse. Must be a non-empty string.
+
+    Returns:
+        The canonical uppercase column letter string (e.g. 'A', 'B', 'AA').
+
+    Raises:
+        InvalidCellReference: If ref is not a string, is empty or whitespace,
+            or is not a valid Excel column identifier (A to XFD).
+    """
+    if not isinstance(ref, str):
+        raise InvalidCellReference(
+            f"Column reference must be a string, got {type(ref).__name__!r}. "
+            f"Received: {ref!r}"
+        )
+
+    if not ref or not ref.strip():
+        raise InvalidCellReference(
+            "Column reference must not be empty or whitespace."
+        )
+
+    cleaned = ref.strip()
+
+    match = _COLUMN_REF_PATTERN.match(cleaned)
+    if not match:
+        raise InvalidCellReference(
+            f"'{ref}' is not a valid Excel column reference. "
+            "Expected a column letter format like 'A', 'B', '$B', or 'AA'."
+        )
+
+    col_str: str = match.group(1).upper()
+    try:
+        column_index_from_string(col_str)
+    except ValueError as exc:
+        raise InvalidCellReference(
+            f"'{col_str}' is not a valid Excel column identifier. "
+            "Excel columns range from A to XFD (column 16,384)."
+        ) from exc
+
+    return col_str
+
