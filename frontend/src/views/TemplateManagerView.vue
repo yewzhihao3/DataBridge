@@ -5,11 +5,11 @@ import { api } from '@/services/api'
 import type {
   TemplateCreate,
   TemplateDetail,
-  //TemplateFieldMapping,
   TemplateSummary,
 } from '@/types/api'
 
 const templates = ref<TemplateSummary[]>([])
+const canonicalFields = ref<string[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const deleting = ref<number | null>(null)
@@ -52,6 +52,7 @@ const closeForm = () => {
 const addMapping = () => {
   form.field_mappings.push({
     field_name: '',
+    target_field: '',
     mapping_type: 'cell',
     cell_ref: '',
     is_required: false,
@@ -62,6 +63,14 @@ const addMapping = () => {
 
 const removeMapping = (index: number) => {
   form.field_mappings.splice(index, 1)
+}
+
+const loadCanonicalFields = async () => {
+  try {
+    canonicalFields.value = await api.listCanonicalFields()
+  } catch (error) {
+    console.error('Failed to load canonical fields:', error)
+  }
 }
 
 const loadTemplates = async () => {
@@ -93,6 +102,7 @@ const editTemplate = async (template: TemplateSummary) => {
     form.field_mappings = detail.field_mappings.map((mapping) => ({
       id: mapping.id,
       field_name: mapping.field_name,
+      target_field: mapping.target_field || '',
       mapping_type: mapping.mapping_type,
       cell_ref: mapping.cell_ref || '',
       is_required: mapping.is_required,
@@ -163,6 +173,7 @@ const saveTemplate = async () => {
       worksheet: form.worksheet.trim(),
       field_mappings: form.field_mappings.map((mapping) => ({
         field_name: mapping.field_name.trim(),
+        target_field: mapping.target_field?.trim() || undefined,
         mapping_type: mapping.mapping_type,
         cell_ref: mapping.cell_ref?.trim() || undefined,
         is_required: mapping.is_required,
@@ -216,7 +227,9 @@ const formatDate = (dateString: string) => {
   return new Date(dateString).toLocaleString()
 }
 
-onMounted(loadTemplates)
+onMounted(async () => {
+  await Promise.all([loadTemplates(), loadCanonicalFields()])
+})
 </script>
 
 <template>
@@ -381,6 +394,24 @@ onMounted(loadTemplates)
               type="text"
               placeholder="company_name"
             />
+          </label>
+
+          <label class="form-field">
+            <span>Target Field</span>
+
+            <input
+              v-model="mapping.target_field"
+              type="text"
+              list="canonical-fields-list"
+              placeholder="(Auto / Match Field Name or select/type)"
+            />
+            <datalist id="canonical-fields-list">
+              <option
+                v-for="cf in canonicalFields"
+                :key="cf"
+                :value="cf"
+              />
+            </datalist>
           </label>
 
           <label class="form-field">

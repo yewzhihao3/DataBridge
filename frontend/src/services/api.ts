@@ -9,6 +9,8 @@ import type {
   ImportBatchDetail,
   ImportBatchListItem,
   ImportConfirmRequest,
+  InvoiceRecordRead,
+  InvoiceRecordUpdate,
   SourceFileUploadResponse,
   TemplateCreate,
   TemplateDetail,
@@ -280,5 +282,35 @@ export const api = {
     return request<ImportBatchDetail>(
       `/imports/${batchId}`,
     )
+  },
+
+  /** Soft-delete an import batch. Returns 204 No Content on success. */
+  async deleteImportBatch(batchId: number): Promise<void> {
+    return request<void>(`/imports/${batchId}`, {
+      method: 'DELETE',
+    })
+  },
+
+  /** PATCH canonical fields on an invoice record. Preserves custom_fields. */
+  async updateInvoiceRecord(
+    batchId: number,
+    recordId: number,
+    payload: InvoiceRecordUpdate,
+  ): Promise<InvoiceRecordRead> {
+    return request<InvoiceRecordRead>(
+      `/imports/${batchId}/records/${recordId}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    )
+  },
+
+  // ── Templates — Canonical Fields ────────────────────────────
+
+  /** Returns the list of canonical target field names supported by InvoiceRecord. */
+  async listCanonicalFields(): Promise<string[]> {
+    return request<string[]>('/templates/canonical-fields')
   },
 }

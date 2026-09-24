@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { CheckCircle2, FileCode, FileSpreadsheet, Loader2, UploadCloud } from 'lucide-vue-next'
+import { FileCode, FileSpreadsheet, Loader2, UploadCloud } from 'lucide-vue-next'
 import type { SourceFileUploadResponse } from '@/types/api'
 
-const props = defineProps<{
+defineProps<{
   uploadedFile: SourceFileUploadResponse | null
   isUploading: boolean
   error: string | null

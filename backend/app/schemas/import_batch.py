@@ -44,9 +44,20 @@ class InvoiceRecordRead(BaseModel):
     total_amount: Decimal | None = None
     currency: str | None = None
     source_worksheet: str
+    custom_fields: dict[str, Any] | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class InvoiceRecordUpdate(BaseModel):
+    company_name: str | None = Field(None, min_length=1, max_length=255)
+    invoice_number: str | None = Field(None, min_length=1, max_length=100)
+    invoice_date: date | None = None
+    total_amount: Decimal | None = None
+    currency: str | None = Field(None, max_length=10)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ImportBatchListItem(BaseModel):

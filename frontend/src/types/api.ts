@@ -40,6 +40,7 @@ export interface WorksheetPreviewResponse {
 export interface TemplateFieldMapping {
   id?: number
   field_name: string
+  target_field?: string | null  // canonical or custom backend field to map to
   mapping_type: 'cell' | 'column' | 'fixed'
   cell_ref?: string
   is_required: boolean
@@ -147,13 +148,24 @@ export interface ImportConfirmRequest {
 
 export interface InvoiceRecordRead {
   id: number
+  batch_id: number
   company_name: string
   invoice_number: string
   invoice_date?: string | null
   total_amount?: number | null
   currency?: string | null
   source_worksheet: string
+  custom_fields?: Record<string, any> | null
   created_at: string
+}
+
+/** Payload for PATCH /api/v1/imports/{batch_id}/records/{record_id} */
+export interface InvoiceRecordUpdate {
+  company_name?: string
+  invoice_number?: string
+  invoice_date?: string | null
+  total_amount?: number | null
+  currency?: string | null
 }
 
 export interface ValidationErrorRecordRead {

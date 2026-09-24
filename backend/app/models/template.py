@@ -81,6 +81,7 @@ class TemplateFieldMapping(Base):
         Integer, ForeignKey("templates.id", ondelete="CASCADE"), nullable=False, index=True
     )
     field_name = Column(String(100), nullable=False)
+    target_field = Column(String(100), nullable=True)  # Canonical or custom backend field to map to
     mapping_type = Column(String(20), nullable=False, default="cell")  # "cell" | "column"
     cell_ref = Column(String(20), nullable=True)  # e.g. "B2"
     column_ref = Column(String(20), nullable=True)  # e.g. "B" (for future column mappings)

@@ -29,6 +29,8 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    JSON,
+    Boolean,
     func,
 )
 from sqlalchemy.orm import relationship
@@ -53,6 +55,7 @@ class ImportBatch(Base):
     status = Column(String(20), nullable=False, default="imported")  # "imported"
     record_count = Column(Integer, nullable=False, default=1)
     warning_count = Column(Integer, nullable=False, default=0)
+    is_deleted = Column(Boolean, nullable=False, default=False)
     imported_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     # Relationships
@@ -93,6 +96,7 @@ class InvoiceRecord(Base):
     currency = Column(String(10), nullable=True)
     source_worksheet = Column(String(100), nullable=False)
     raw_data = Column(Text, nullable=False)  # JSON-encoded dictionary of raw extractions
+    custom_fields = Column(JSON, nullable=True)  # Optional JSON data for fields that are not core headers
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     batch = relationship("ImportBatch", back_populates="invoice_records")

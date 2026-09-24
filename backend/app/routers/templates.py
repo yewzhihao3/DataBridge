@@ -8,6 +8,7 @@ Features:
 - HTTP 409 Conflict on duplicate template names.
 - Automatic cascade deletion of child field mappings.
 - Automatic updating of updated_at timestamps.
+- GET /canonical-fields: returns the list of supported canonical target fields.
 ──────────────────────────────────────────────────────────────────────────────
 """
 
@@ -18,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from app.constants import CANONICAL_INVOICE_FIELDS_LIST
 from app.database import get_db
 from app.models.template import Template, TemplateFieldMapping
 from app.schemas.template import (
@@ -28,6 +30,21 @@ from app.schemas.template import (
 )
 
 router = APIRouter(prefix="/api/v1/templates", tags=["Templates"])
+
+@router.get(
+    "/canonical-fields",
+    response_model=list[str],
+    summary="List all supported canonical invoice field names",
+)
+def list_canonical_fields() -> list[str]:
+    """
+    Returns the list of canonical target field names supported by InvoiceRecord.
+    Use these as `target_field` values in template field mappings to route
+    extracted data directly into the corresponding database column.
+    Any mapping whose target_field is NOT in this list will be stored as a
+    custom field in the invoice record's `custom_fields` JSON column.
+    """
+    return CANONICAL_INVOICE_FIELDS_LIST
 
 
 @router.post(
@@ -67,6 +84,7 @@ def create_template(
         template.field_mappings.append(
             TemplateFieldMapping(
                 field_name=mapping.field_name,
+                target_field=mapping.target_field,
                 mapping_type=mapping.mapping_type,
                 cell_ref=mapping.cell_ref,
                 column_ref=mapping.column_ref,
@@ -204,6 +222,7 @@ def update_template(
             template.field_mappings.append(
                 TemplateFieldMapping(
                     field_name=m.field_name,
+                    target_field=m.target_field,
                     mapping_type=m.mapping_type,
                     cell_ref=m.cell_ref,
                     column_ref=m.column_ref,

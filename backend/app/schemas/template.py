@@ -4,10 +4,12 @@ app/schemas/template.py — Pydantic request and response schemas for templates.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.constants import CANONICAL_INVOICE_FIELDS
 from app.utils.cell_reference import InvalidCellReference, parse_cell_reference
 
 
@@ -16,6 +18,7 @@ from app.utils.cell_reference import InvalidCellReference, parse_cell_reference
 
 class FieldMappingBase(BaseModel):
     field_name: str = Field(..., min_length=1, max_length=100, description="Standard field identifier")
+    target_field: str | None = Field(None, max_length=100, description="Canonical or custom backend field to map to")
     mapping_type: Literal["cell", "column"] = Field("cell", description="Mapping strategy (only 'cell' in MVP)")
     cell_ref: str | None = Field(None, description="Cell reference e.g. 'B2'")
     column_ref: str | None = Field(None, description="Column letter e.g. 'B' (future)")
@@ -28,6 +31,21 @@ class FieldMappingBase(BaseModel):
         clean = v.strip().lower()
         if not clean:
             raise ValueError("Field name cannot be empty or whitespace.")
+        return clean
+
+    @field_validator("target_field")
+    @classmethod
+    def clean_target_field(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        clean = v.strip().lower()
+        if not clean:
+            return None
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", clean):
+            raise ValueError(
+                f"Invalid target_field '{clean}'. Target field must contain only "
+                "alphanumeric characters and underscores, and cannot start with a number."
+            )
         return clean
 
     @field_validator("mapping_type")
@@ -65,6 +83,7 @@ class FieldMappingRead(FieldMappingBase):
 # ── Template Schemas ──────────────────────────────────────────────────────────
 
 
+
 class TemplateBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Unique template name")
     description: str | None = Field(None, max_length=500)
@@ -91,6 +110,7 @@ class TemplateCreate(TemplateBase):
     @model_validator(mode="after")
     def check_duplicate_field_names(self) -> TemplateCreate:
         names_seen: set[str] = set()
+        canonical_targets_seen: set[str] = set()
         for mapping in self.field_mappings:
             if mapping.field_name in names_seen:
                 raise ValueError(
@@ -98,6 +118,14 @@ class TemplateCreate(TemplateBase):
                     "Each field name must be unique within a template."
                 )
             names_seen.add(mapping.field_name)
+
+            if mapping.target_field and mapping.target_field in CANONICAL_INVOICE_FIELDS:
+                if mapping.target_field in canonical_targets_seen:
+                    raise ValueError(
+                        f"Duplicate mapping to canonical field '{mapping.target_field}'. "
+                        "Each canonical target field can only be mapped once per template."
+                    )
+                canonical_targets_seen.add(mapping.target_field)
         return self
 
 
@@ -126,12 +154,21 @@ class TemplateUpdate(BaseModel):
     def check_duplicate_update_field_names(self) -> TemplateUpdate:
         if self.field_mappings is not None:
             names_seen: set[str] = set()
+            canonical_targets_seen: set[str] = set()
             for mapping in self.field_mappings:
                 if mapping.field_name in names_seen:
                     raise ValueError(
                         f"Duplicate field_name '{mapping.field_name}' in template mappings."
                     )
                 names_seen.add(mapping.field_name)
+
+                if mapping.target_field and mapping.target_field in CANONICAL_INVOICE_FIELDS:
+                    if mapping.target_field in canonical_targets_seen:
+                        raise ValueError(
+                            f"Duplicate mapping to canonical field '{mapping.target_field}'. "
+                            "Each canonical target field can only be mapped once per template."
+                        )
+                    canonical_targets_seen.add(mapping.target_field)
         return self
 
 

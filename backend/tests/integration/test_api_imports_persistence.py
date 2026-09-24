@@ -106,6 +106,48 @@ async def test_confirm_import_success_persists_batch_and_invoice(
     assert db_inv.total_amount == Decimal("1450.50")
     assert "Acme Supplies Ltd" in db_inv.raw_data
 
+@pytest.mark.asyncio
+async def test_confirm_import_handles_different_field_naming_formats(
+    client: AsyncClient,
+    clean_single_sheet_xlsx: Path,
+    clean_template_payload: dict[str, Any],
+    db_session: Session,
+) -> None:
+    """Verify that fields like 'Company Name' or 'invoice number' map correctly to DB columns."""
+    upload_res = await client.post(
+        "/api/v1/files/upload",
+        files={"file": ("invoice.xlsx", clean_single_sheet_xlsx.read_bytes(), "application/octet-stream")},
+    )
+    file_id = upload_res.json()["file_id"]
+
+    # Modify template to use weird field names
+    weird_template = dict(clean_template_payload)
+    weird_template["name"] = "Weird Template"
+    for field in weird_template["field_mappings"]:
+        if field["field_name"] == "company_name":
+            field["field_name"] = "Company"
+        elif field["field_name"] == "invoice_number":
+            field["field_name"] = "invoice number"
+        elif field["field_name"] == "invoice_date":
+            field["field_name"] = "Invoice-Date"
+        elif field["field_name"] == "total_amount":
+            field["field_name"] = "total amount"
+
+    template_res = await client.post("/api/v1/templates", json=weird_template)
+    template_id = template_res.json()["id"]
+
+    confirm_res = await client.post(
+        "/api/v1/imports/confirm",
+        json={"file_id": file_id, "template_id": template_id, "acknowledge_warnings": True},
+    )
+    assert confirm_res.status_code == 201
+    
+    data = confirm_res.json()
+    inv = data["invoice_records"][0]
+    assert inv["company_name"] == "Acme Supplies Ltd"
+    assert inv["invoice_number"] == "INV-2026-001"
+    assert inv["invoice_date"] == "2026-09-22"
+    assert float(inv["total_amount"]) == 1450.50
 
 @pytest.mark.asyncio
 async def test_confirm_import_rejected_on_validation_errors_commits_nothing(

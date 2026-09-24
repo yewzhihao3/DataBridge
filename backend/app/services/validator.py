@@ -8,6 +8,9 @@ Responsibilities:
 3. Provide deterministic date checks via injected reference_date.
 4. Abstract duplicate invoice checking safely without tight coupling to ORMs.
 5. Operate strictly in-memory without database mutations.
+6. Support explicit target_field mapping: when a field_to_target dict is provided,
+   normalized_data keys are set to the target field name so that the importer can
+   route values directly to the correct InvoiceRecord column or custom_fields JSON.
 ──────────────────────────────────────────────────────────────────────────────
 """
 
@@ -105,6 +108,7 @@ def validate_extraction(
     extraction_result: ExtractionResult,
     config: ValidationConfig | None = None,
     duplicate_checker: Callable[[str, str], bool] | None = None,
+    field_to_target: dict[str, str] | None = None,
 ) -> ValidationReport:
     """
     Evaluates business rules against an ExtractionResult in-memory.
@@ -114,12 +118,18 @@ def validate_extraction(
         config: Optional ValidationConfig. Defaults to standard parameters.
         duplicate_checker: Optional read-only callable taking (company_name, invoice_number)
                            and returning True if a duplicate exists.
+        field_to_target: Optional dict mapping field_name -> target_field. When provided,
+                         normalized_data keys use target_field instead of field_name,
+                         allowing the importer to route values to the correct columns.
+                         Explicit target_field mappings take priority over alias-based
+                         fallbacks in the persistence layer.
 
     Returns:
         ValidationReport containing is_valid_for_import, issue list, counts, and normalized data.
     """
     cfg = config or ValidationConfig()
     today = cfg.reference_date or date.today()
+    _field_to_target: dict[str, str] = field_to_target or {}
 
     issues: list[ValidationIssue] = []
     normalized_data: dict[str, Any] = {}
@@ -182,7 +192,9 @@ def validate_extraction(
 
         # B. If field is empty optional, record None and proceed
         if f.status == "empty_optional":
-            normalized_data[f.field_name] = None
+            # Use target_field as the key if explicitly configured
+            norm_key = _field_to_target.get(f.field_name, f.field_name)
+            normalized_data[norm_key] = None
             if f.warning_message:
                 issues.append(
                     ValidationIssue(
@@ -199,17 +211,20 @@ def validate_extraction(
 
         # C. Field status == "success": record normalized value and apply business rules
         val = f.normalized_value
-        normalized_data[f.field_name] = val
+        # Use target_field as the key if explicitly configured
+        norm_key = _field_to_target.get(f.field_name, f.field_name)
+        normalized_data[norm_key] = val
 
         # Rule: Empty identifier check (company_name, invoice_number)
-        if f.field_name in {"company_name", "invoice_number"}:
+        # Check using the canonical target key OR original field_name
+        if norm_key in {"company_name", "invoice_number"}:
             if isinstance(val, str) and not val.strip():
                 issues.append(
                     ValidationIssue(
                         rule_id=RULE_EMPTY_IDENTIFIER,
                         field_name=f.field_name,
                         severity="error",
-                        message=f"Identifier field '{f.field_name}' cannot be empty or whitespace.",
+                        message=f"Identifier field '{norm_key}' cannot be empty or whitespace.",
                         cell_ref=f.source_cell_ref,
                         worksheet=f.source_worksheet,
                         actual_value=val,

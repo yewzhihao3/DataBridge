@@ -5,11 +5,15 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock,
+  Edit2,
   Eye,
   FileSpreadsheet,
   History,
   Loader2,
   RefreshCw,
+  Save,
+  Trash2,
+  X,
   XCircle,
 } from 'lucide-vue-next'
 
@@ -18,6 +22,8 @@ import type {
   ApiError,
   ImportBatchDetail,
   ImportBatchListItem,
+  InvoiceRecordRead,
+  InvoiceRecordUpdate,
 } from '@/types/api'
 
 const imports = ref<ImportBatchListItem[]>([])
@@ -154,6 +160,19 @@ function formatStatus(status: string): string {
     )
 }
 
+function formatAmount(
+  record: ImportBatchDetail['invoice_records'][number],
+): string {
+  if (
+    record.total_amount !== null &&
+    record.total_amount !== undefined
+  ) {
+    return `${record.currency || ''} ${record.total_amount}`.trim()
+  }
+
+  return '—'
+}
+
 async function loadImports(): Promise<void> {
   isLoading.value = true
   errorMessage.value = ''
@@ -210,21 +229,101 @@ async function refreshHistory(): Promise<void> {
 }
 
 async function goToPreviousPage(): Promise<void> {
-  if (currentPage.value <= 1 || isLoading.value) {
-    return
-  }
-
+  if (currentPage.value <= 1 || isLoading.value) return
   currentPage.value -= 1
   await loadImports()
 }
 
 async function goToNextPage(): Promise<void> {
-  if (!hasNextPage.value || isLoading.value) {
-    return
-  }
-
+  if (!hasNextPage.value || isLoading.value) return
   currentPage.value += 1
   await loadImports()
+}
+
+// ── Delete Batch State ─────────────────────────────────────────────────────
+const batchToDelete = ref<ImportBatchListItem | null>(null)
+const isDeleting = ref(false)
+const deleteError = ref('')
+
+function confirmDeleteBatch(item: ImportBatchListItem): void {
+  batchToDelete.value = item
+  deleteError.value = ''
+}
+
+function cancelDelete(): void {
+  batchToDelete.value = null
+  deleteError.value = ''
+}
+
+async function deleteBatch(): Promise<void> {
+  if (!batchToDelete.value) return
+  isDeleting.value = true
+  deleteError.value = ''
+  try {
+    await api.deleteImportBatch(batchToDelete.value.id)
+    // If the deleted batch was selected, close the detail panel
+    if (selectedImport.value?.id === batchToDelete.value.id) {
+      closeDetails()
+    }
+    batchToDelete.value = null
+    await loadImports()
+  } catch (error: unknown) {
+    const apiError = error as Partial<ApiError>
+    deleteError.value = apiError.message || 'Failed to delete import batch.'
+  } finally {
+    isDeleting.value = false
+  }
+}
+
+// ── Edit Invoice Record State ───────────────────────────────────────────────
+const editingRecord = ref<InvoiceRecordRead | null>(null)
+const editForm = ref<InvoiceRecordUpdate>({})
+const isSavingEdit = ref(false)
+const editError = ref('')
+
+function startEditRecord(record: InvoiceRecordRead): void {
+  editingRecord.value = record
+  editForm.value = {
+    company_name: record.company_name,
+    invoice_number: record.invoice_number,
+    invoice_date: record.invoice_date ?? null,
+    total_amount: record.total_amount ?? null,
+    currency: record.currency ?? null,
+  }
+  editError.value = ''
+}
+
+function cancelEdit(): void {
+  editingRecord.value = null
+  editForm.value = {}
+  editError.value = ''
+}
+
+async function saveRecord(): Promise<void> {
+  if (!editingRecord.value || !selectedImport.value) return
+  isSavingEdit.value = true
+  editError.value = ''
+  try {
+    const updated = await api.updateInvoiceRecord(
+      selectedImport.value.id,
+      editingRecord.value.id,
+      editForm.value,
+    )
+    // Update in-place within selectedImport
+    const idx = selectedImport.value.invoice_records.findIndex(
+      (r) => r.id === updated.id,
+    )
+    if (idx !== -1) {
+      selectedImport.value.invoice_records[idx] = updated
+    }
+    editingRecord.value = null
+    editForm.value = {}
+  } catch (error: unknown) {
+    const apiError = error as Partial<ApiError>
+    editError.value = apiError.message || 'Failed to save changes.'
+  } finally {
+    isSavingEdit.value = false
+  }
 }
 
 onMounted(() => {
@@ -547,6 +646,17 @@ onMounted(() => {
                   <Eye :size="14" />
                   View
                 </button>
+
+                <button
+                  class="btn btn-danger btn-small"
+                  type="button"
+                  :disabled="isDeleting"
+                  title="Delete Batch"
+                  @click="confirmDeleteBatch(item)"
+                >
+                  <Trash2 :size="14" />
+                  Delete
+                </button>
               </td>
             </tr>
           </tbody>
@@ -709,9 +819,10 @@ onMounted(() => {
 
         <!-- Invoice Records -->
         <div class="detail-section">
-          <h3>
-            Invoice Records
-          </h3>
+          <div class="detail-section-header">
+            <h3>Invoice Records</h3>
+            <span class="muted-value">{{ selectedImport.invoice_records.length }} record(s)</span>
+          </div>
 
           <p
             v-if="selectedImport.invoice_records.length === 0"
@@ -729,24 +840,152 @@ onMounted(() => {
               :key="record.id"
               class="record-item"
             >
-              <div>
-                <strong>
-                  {{ record.company_name }}
-                </strong>
+              <!-- In-line Edit Mode -->
+              <div v-if="editingRecord?.id === record.id" class="record-edit-form">
+                <div class="edit-form-header">
+                  <strong>Edit Record #{{ record.id }}</strong>
+                  <span class="muted-value">Editing canonical fields</span>
+                </div>
 
-                <span>
-                  Invoice #{{ record.invoice_number }}
-                </span>
+                <div v-if="editError" class="modal-error">
+                  {{ editError }}
+                </div>
+
+                <div class="edit-fields-grid">
+                  <label class="edit-field">
+                    <span>Company Name</span>
+                    <input
+                      v-model="editForm.company_name"
+                      type="text"
+                      placeholder="Company Name"
+                    />
+                  </label>
+
+                  <label class="edit-field">
+                    <span>Invoice Number</span>
+                    <input
+                      v-model="editForm.invoice_number"
+                      type="text"
+                      placeholder="Invoice Number"
+                    />
+                  </label>
+
+                  <label class="edit-field">
+                    <span>Invoice Date</span>
+                    <input
+                      v-model="editForm.invoice_date"
+                      type="text"
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </label>
+
+                  <label class="edit-field">
+                    <span>Total Amount</span>
+                    <input
+                      v-model.number="editForm.total_amount"
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                    />
+                  </label>
+
+                  <label class="edit-field">
+                    <span>Currency</span>
+                    <input
+                      v-model="editForm.currency"
+                      type="text"
+                      placeholder="e.g. MYR, USD"
+                    />
+                  </label>
+                </div>
+
+                <!-- Custom fields read-only notice -->
+                <div
+                  v-if="record.custom_fields && Object.keys(record.custom_fields).length > 0"
+                  class="custom-fields-box"
+                >
+                  <span class="custom-fields-title">Custom Fields (Preserved):</span>
+                  <div class="custom-chips">
+                    <span
+                      v-for="(val, key) in record.custom_fields"
+                      :key="key"
+                      class="custom-chip"
+                    >
+                      <strong>{{ key }}:</strong> {{ val }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="edit-form-actions">
+                  <button
+                    class="btn btn-secondary btn-small"
+                    type="button"
+                    :disabled="isSavingEdit"
+                    @click="cancelEdit"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    class="btn btn-primary btn-small"
+                    type="button"
+                    :disabled="isSavingEdit"
+                    @click="saveRecord"
+                  >
+                    <Loader2 v-if="isSavingEdit" :size="13" class="animate-spin" />
+                    <Save v-else :size="13" />
+                    {{ isSavingEdit ? 'Saving...' : 'Save Changes' }}
+                  </button>
+                </div>
               </div>
 
-              <strong>
-                {{
-                  record.total_amount !== null &&
-                  record.total_amount !== undefined
-                    ? `${record.currency || ''} ${record.total_amount}`
-                    : '—'
-                }}
-              </strong>
+              <!-- Normal Display Mode -->
+              <div v-else class="record-view-row">
+                <div class="record-info">
+                  <strong>
+                    {{ record.company_name }}
+                  </strong>
+
+                  <span>
+                    Invoice #{{ record.invoice_number }}
+                  </span>
+
+                  <span>
+                    Date:
+                    {{ record.invoice_date ? formatDate(record.invoice_date) : '—' }}
+                  </span>
+
+                  <!-- Custom Fields display -->
+                  <div
+                    v-if="record.custom_fields && Object.keys(record.custom_fields).length > 0"
+                    class="custom-chips"
+                  >
+                    <span
+                      v-for="(val, key) in record.custom_fields"
+                      :key="key"
+                      class="custom-chip"
+                    >
+                      <strong>{{ key }}:</strong> {{ val }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="record-meta-actions">
+                  <strong class="record-amount">
+                    {{ formatAmount(record) }}
+                  </strong>
+
+                  <button
+                    class="btn btn-secondary btn-small"
+                    type="button"
+                    title="Edit Record"
+                    @click="startEditRecord(record)"
+                  >
+                    <Edit2 :size="13" />
+                    Edit
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -796,13 +1035,92 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="modal-actions">
+        <div class="modal-actions space-between">
+          <button
+            class="btn btn-danger btn-small"
+            type="button"
+            :disabled="isDeleting"
+            @click="confirmDeleteBatch({
+              id: selectedImport.id,
+              source_file_id: selectedImport.source_file_id,
+              original_filename: selectedImport.original_filename,
+              template_id: selectedImport.template_id,
+              template_name: selectedImport.template_name,
+              status: selectedImport.status,
+              record_count: selectedImport.record_count,
+              warning_count: selectedImport.warning_count,
+              imported_at: selectedImport.imported_at,
+            })"
+          >
+            <Trash2 :size="14" />
+            Delete Batch
+          </button>
+
           <button
             class="btn btn-secondary"
             type="button"
             @click="closeDetails"
           >
             Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div
+      v-if="batchToDelete"
+      class="details-overlay"
+      @click.self="cancelDelete"
+    >
+      <div class="details-modal confirm-delete-modal">
+        <div class="modal-heading">
+          <div class="modal-title-with-icon">
+            <AlertCircle :size="22" class="error-text" />
+            <h2>Delete Import Batch</h2>
+          </div>
+
+          <button
+            class="close-button"
+            type="button"
+            aria-label="Cancel deletion"
+            @click="cancelDelete"
+          >
+            <X :size="20" />
+          </button>
+        </div>
+
+        <p class="modal-description">
+          Are you sure you want to delete batch <strong>#{{ batchToDelete.id }}</strong> (<em>{{ batchToDelete.original_filename }}</em>)?
+        </p>
+
+        <p class="modal-subtext">
+          This soft-deletes the batch and excludes its {{ batchToDelete.record_count }} record(s) from history and reporting.
+        </p>
+
+        <div v-if="deleteError" class="modal-error">
+          {{ deleteError }}
+        </div>
+
+        <div class="modal-actions">
+          <button
+            class="btn btn-secondary"
+            type="button"
+            :disabled="isDeleting"
+            @click="cancelDelete"
+          >
+            Cancel
+          </button>
+
+          <button
+            class="btn btn-danger"
+            type="button"
+            :disabled="isDeleting"
+            @click="deleteBatch"
+          >
+            <Loader2 v-if="isDeleting" :size="15" class="animate-spin" />
+            <Trash2 v-else :size="15" />
+            {{ isDeleting ? 'Deleting...' : 'Delete Batch' }}
           </button>
         </div>
       </div>
@@ -1125,6 +1443,13 @@ onMounted(() => {
   text-align: right !important;
 }
 
+td.actions-column {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .batch-id {
   color: var(--accent-brand);
   font-family: var(--font-mono);
@@ -1400,6 +1725,142 @@ onMounted(() => {
   background: var(--bg-subtle);
 }
 
+.record-view-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 1rem;
+}
+
+.record-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.record-meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.record-amount {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* Custom Field Chips */
+.custom-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.custom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.custom-chip strong {
+  color: var(--accent-brand);
+  font-weight: 600;
+}
+
+.custom-fields-box {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  margin: 0.35rem 0;
+}
+
+.custom-fields-title {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* In-line Record Edit Form */
+.record-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.25rem 0;
+}
+
+.edit-form-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.edit-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.6rem;
+}
+
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.edit-field span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.edit-field input {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.edit-field input:focus {
+  outline: none;
+  border-color: var(--accent-brand);
+  box-shadow: 0 0 0 2px var(--accent-brand-subtle, rgba(99, 102, 241, 0.2));
+}
+
+.edit-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.detail-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.detail-section-header h3 {
+  margin-bottom: 0;
+}
+
 .record-item strong,
 .record-item span,
 .validation-item strong,
@@ -1428,8 +1889,43 @@ onMounted(() => {
 .modal-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
 
   margin-top: 1.5rem;
+}
+
+.modal-actions.space-between {
+  justify-content: space-between;
+}
+
+.confirm-delete-modal {
+  max-width: 480px;
+}
+
+.modal-title-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.modal-title-with-icon h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.modal-description {
+  margin-top: 1rem;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.modal-subtext {
+  margin-top: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 /* Animations */
