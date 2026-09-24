@@ -5,6 +5,7 @@ import { api } from '@/services/api'
 import type {
   TemplateCreate,
   TemplateDetail,
+  TemplateFieldMapping,
   TemplateSummary,
 } from '@/types/api'
 
@@ -20,11 +21,16 @@ const successMessage = ref('')
 const isFormOpen = ref(false)
 const editingTemplateId = ref<number | null>(null)
 
+// Mode tab: 'cell' (Invoice Mapping) or 'column' (Multi-Record Import)
+const activeTab = ref<'cell' | 'column'>('cell')
+
 const form = reactive<TemplateCreate>({
   name: '',
   description: '',
   file_type: 'xlsx',
   worksheet: '',
+  header_row: 1,
+  data_start_row: 2,
   field_mappings: [],
 })
 
@@ -33,8 +39,11 @@ const resetForm = () => {
   form.description = ''
   form.file_type = 'xlsx'
   form.worksheet = ''
+  form.header_row = 1
+  form.data_start_row = 2
   form.field_mappings = []
   editingTemplateId.value = null
+  activeTab.value = 'cell'
 }
 
 const openCreateForm = () => {
@@ -56,7 +65,11 @@ const isCanonicalOrEmpty = (field: string | null | undefined): boolean => {
   return canonicalFields.value.includes(field)
 }
 
-const handleTargetFieldChange = (event: Event, index: number, mapping: any) => {
+const handleTargetFieldChange = (
+  event: Event,
+  index: number,
+  mapping: TemplateFieldMapping,
+) => {
   const value = (event.target as HTMLSelectElement).value
   if (value === '__custom__') {
     customTargetActive[index] = true
@@ -69,12 +82,58 @@ const handleTargetFieldChange = (event: Event, index: number, mapping: any) => {
   }
 }
 
+const switchTab = (targetTab: 'cell' | 'column') => {
+  if (activeTab.value === targetTab) return
+
+  // Check if switching might alter populated references
+  const hasIncompatibleData = form.field_mappings.some((m) => {
+    if (targetTab === 'column') {
+      return !!m.cell_ref?.trim()
+    } else {
+      return !!m.column_ref?.trim()
+    }
+  })
+
+  if (hasIncompatibleData) {
+    const fromName =
+      activeTab.value === 'cell' ? 'Invoice Mapping' : 'Multi-Record Import'
+    const toName =
+      targetTab === 'cell' ? 'Invoice Mapping' : 'Multi-Record Import'
+    const confirmMessage = `Switching from ${fromName} to ${toName} will convert your field mapping configuration. Are you sure you want to switch?`
+    if (!window.confirm(confirmMessage)) {
+      return
+    }
+  }
+
+  activeTab.value = targetTab
+
+  // Update mapping_type for all mappings and attempt smart reference preservation
+  form.field_mappings.forEach((mapping) => {
+    mapping.mapping_type = targetTab
+    if (targetTab === 'column') {
+      // If cell_ref is e.g. "B4", extract column "B"
+      if (mapping.cell_ref && !mapping.column_ref) {
+        const match = mapping.cell_ref.trim().match(/^([A-Za-z]+)/)
+        if (match) {
+          mapping.column_ref = match[1].toUpperCase()
+        }
+      }
+    } else if (targetTab === 'cell') {
+      // If column_ref is e.g. "B", set cell_ref to "B1" if empty
+      if (mapping.column_ref && !mapping.cell_ref) {
+        mapping.cell_ref = `${mapping.column_ref.trim().toUpperCase()}1`
+      }
+    }
+  })
+}
+
 const addMapping = () => {
   form.field_mappings.push({
     field_name: '',
     target_field: '',
-    mapping_type: 'cell',
+    mapping_type: activeTab.value,
     cell_ref: '',
+    column_ref: '',
     is_required: false,
     data_type: 'text',
     date_format: '',
@@ -118,14 +177,23 @@ const editTemplate = async (template: TemplateSummary) => {
     form.name = detail.name
     form.description = detail.description || ''
     form.file_type = detail.file_type
-    form.worksheet = detail.worksheet
+    form.worksheet = detail.worksheet || ''
+    form.header_row = detail.header_row || 1
+    form.data_start_row = detail.data_start_row || 2
+
+    // Automatically detect mode based on existing field mappings
+    const hasColumnMapping = detail.field_mappings.some(
+      (m) => m.mapping_type === 'column',
+    )
+    activeTab.value = hasColumnMapping ? 'column' : 'cell'
 
     form.field_mappings = detail.field_mappings.map((mapping) => ({
       id: mapping.id,
       field_name: mapping.field_name,
       target_field: mapping.target_field || '',
-      mapping_type: mapping.mapping_type,
+      mapping_type: mapping.mapping_type || activeTab.value,
       cell_ref: mapping.cell_ref || '',
+      column_ref: mapping.column_ref || '',
       is_required: mapping.is_required,
       data_type: mapping.data_type,
       date_format: mapping.date_format || '',
@@ -152,6 +220,17 @@ const validateForm = (): boolean => {
     return false
   }
 
+  if (activeTab.value === 'column') {
+    if (!form.header_row || form.header_row < 1) {
+      errorMessage.value = 'Header row must be at least 1.'
+      return false
+    }
+    if (!form.data_start_row || form.data_start_row < 1) {
+      errorMessage.value = 'Data start row must be at least 1.'
+      return false
+    }
+  }
+
   if (form.field_mappings.length === 0) {
     errorMessage.value = 'Add at least one field mapping.'
     return false
@@ -163,12 +242,13 @@ const validateForm = (): boolean => {
       return false
     }
 
-    if (
-      mapping.mapping_type === 'cell' &&
-      !mapping.cell_ref?.trim()
-    ) {
-      errorMessage.value =
-        `Cell reference is required for "${mapping.field_name}".`
+    if (activeTab.value === 'cell' && !mapping.cell_ref?.trim()) {
+      errorMessage.value = `Cell reference is required for "${mapping.field_name}".`
+      return false
+    }
+
+    if (activeTab.value === 'column' && !mapping.column_ref?.trim()) {
+      errorMessage.value = `Column reference is required for "${mapping.field_name}".`
       return false
     }
   }
@@ -192,11 +272,30 @@ const saveTemplate = async () => {
       description: form.description?.trim() || '',
       file_type: form.file_type,
       worksheet: form.worksheet.trim(),
+      header_row:
+        activeTab.value === 'column'
+          ? form.header_row
+            ? Number(form.header_row)
+            : 1
+          : undefined,
+      data_start_row:
+        activeTab.value === 'column'
+          ? form.data_start_row
+            ? Number(form.data_start_row)
+            : 2
+          : undefined,
       field_mappings: form.field_mappings.map((mapping) => ({
         field_name: mapping.field_name.trim(),
         target_field: mapping.target_field?.trim() || undefined,
-        mapping_type: mapping.mapping_type,
-        cell_ref: mapping.cell_ref?.trim() || undefined,
+        mapping_type: activeTab.value,
+        cell_ref:
+          activeTab.value === 'cell'
+            ? mapping.cell_ref?.trim() || undefined
+            : undefined,
+        column_ref:
+          activeTab.value === 'column'
+            ? mapping.column_ref?.trim() || undefined
+            : undefined,
         is_required: mapping.is_required,
         data_type: mapping.data_type,
         date_format: mapping.date_format?.trim() || undefined,
@@ -297,9 +396,11 @@ onMounted(async () => {
           </div>
 
           <h2>
-            {{ editingTemplateId !== null
-              ? 'Edit Template'
-              : 'Create Template' }}
+            {{
+              editingTemplateId !== null
+                ? 'Edit Template'
+                : 'Create Template'
+            }}
           </h2>
         </div>
 
@@ -354,10 +455,164 @@ onMounted(async () => {
 
           <textarea
             v-model="form.description"
-            rows="3"
+            rows="2"
             placeholder="Describe this template..."
           />
         </label>
+      </div>
+
+      <!-- Import Mode Selection Tabs -->
+      <div class="mode-section">
+        <div class="mode-tabs-header">
+          <h3>Import Mode</h3>
+          <p>Select how data is structured in your source files.</p>
+        </div>
+
+        <div class="mode-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'cell'"
+            class="mode-tab"
+            :class="{ active: activeTab === 'cell' }"
+            @click="switchTab('cell')"
+          >
+            <div class="tab-icon">📄</div>
+            <div class="tab-label-group">
+              <span class="tab-title">Invoice Mapping</span>
+              <span class="tab-sub">Single Invoice Cell Extraction</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'column'"
+            class="mode-tab"
+            :class="{ active: activeTab === 'column' }"
+            @click="switchTab('column')"
+          >
+            <div class="tab-icon">📊</div>
+            <div class="tab-label-group">
+              <span class="tab-title">Multi-Record Import</span>
+              <span class="tab-sub">Spreadsheet Row Dataset</span>
+            </div>
+          </button>
+        </div>
+
+        <!-- Mode Banner / Header Details -->
+        <div class="mode-banner glass-card">
+          <div v-if="activeTab === 'cell'" class="mode-info">
+            <div class="mode-title-row">
+              <h4>Invoice Mapping</h4>
+
+              <span class="info-tooltip-wrapper">
+                <button
+                  type="button"
+                  class="info-icon-btn"
+                  aria-label="Invoice Mapping Info"
+                  tabindex="-1"
+                >
+                  ⓘ
+                </button>
+                <span class="tooltip-content">
+                  Use Invoice Mapping when one uploaded file represents one
+                  invoice. Each field is extracted from a specific Excel cell,
+                  such as Invoice Number → F4 or Total Amount → F20.
+                </span>
+              </span>
+            </div>
+
+            <p class="mode-description">
+              Extract fields from specific cells in a single invoice.
+            </p>
+          </div>
+
+          <div v-else class="mode-info">
+            <div class="mode-title-row">
+              <h4>Multi-Record Import</h4>
+
+              <span class="info-tooltip-wrapper">
+                <button
+                  type="button"
+                  class="info-icon-btn"
+                  aria-label="Multi-Record Import Info"
+                  tabindex="-1"
+                >
+                  ⓘ
+                </button>
+                <span class="tooltip-content">
+                  Use Multi-Record Import for spreadsheet-style datasets
+                  where each row represents a separate record. For example, Row
+                  2 may contain Invoice 001 and Row 3 may contain Invoice 002.
+                </span>
+              </span>
+            </div>
+
+            <p class="mode-description">
+              Import multiple records from a structured spreadsheet where each
+              row represents one record.
+            </p>
+
+            <!-- Spreadsheet row parameters for Multi-Record Import mode -->
+            <div class="form-grid spreadsheet-options">
+              <label class="form-field">
+                <div class="field-label-row">
+                  <span>Header Row</span>
+
+                  <span class="info-tooltip-wrapper">
+                    <button
+                      type="button"
+                      class="info-icon-btn"
+                      aria-label="Header Row Info"
+                      tabindex="-1"
+                    >
+                      ⓘ
+                    </button>
+                    <span class="tooltip-content">
+                      The spreadsheet row containing the column headings.
+                    </span>
+                  </span>
+                </div>
+
+                <input
+                  v-model.number="form.header_row"
+                  type="number"
+                  min="1"
+                  placeholder="1"
+                />
+              </label>
+
+              <label class="form-field">
+                <div class="field-label-row">
+                  <span>Data Start Row</span>
+
+                  <span class="info-tooltip-wrapper">
+                    <button
+                      type="button"
+                      class="info-icon-btn"
+                      aria-label="Data Start Row Info"
+                      tabindex="-1"
+                    >
+                      ⓘ
+                    </button>
+                    <span class="tooltip-content">
+                      The first spreadsheet row containing an actual record.
+                      Rows before this are ignored.
+                    </span>
+                  </span>
+                </div>
+
+                <input
+                  v-model.number="form.data_start_row"
+                  type="number"
+                  min="1"
+                  placeholder="2"
+                />
+              </label>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Field Mappings -->
@@ -365,21 +620,27 @@ onMounted(async () => {
         <div>
           <h3>Field Mappings</h3>
 
-          <p>
-            Define where each field is located in the source worksheet.
+          <p v-if="activeTab === 'cell'">
+            Map fields to specific cell coordinates (e.g. B3, F4).
+          </p>
+          <p v-else>
+            Map fields to spreadsheet column letters (e.g. A, B, C).
           </p>
         </div>
 
-        <button class="btn btn-secondary" @click="addMapping">
+        <button type="button" class="btn btn-secondary" @click="addMapping">
           <span>+</span>
           Add Mapping
         </button>
       </div>
 
-      <div v-if="form.field_mappings.length === 0" class="empty-state compact">
+      <div
+        v-if="form.field_mappings.length === 0"
+        class="empty-state compact"
+      >
         <p>No field mappings added yet.</p>
 
-        <button class="btn btn-secondary" @click="addMapping">
+        <button type="button" class="btn btn-secondary" @click="addMapping">
           Add Your First Mapping
         </button>
       </div>
@@ -399,6 +660,7 @@ onMounted(async () => {
           </div>
 
           <button
+            type="button"
             class="btn btn-danger btn-small"
             @click="removeMapping(index)"
           >
@@ -453,14 +715,66 @@ onMounted(async () => {
             />
           </label>
 
-          <label class="form-field">
-            <span>Mapping Type</span>
+          <!-- Show Cell Reference ONLY in Invoice Mapping ('cell') mode -->
+          <label
+            v-if="activeTab === 'cell'"
+            class="form-field"
+          >
+            <div class="field-label-row">
+              <span>Cell Reference</span>
 
-            <select v-model="mapping.mapping_type">
-              <option value="cell">Cell</option>
-              <option value="column">Column</option>
-              <option value="fixed">Fixed</option>
-            </select>
+              <span class="info-tooltip-wrapper">
+                <button
+                  type="button"
+                  class="info-icon-btn"
+                  aria-label="Cell Reference Info"
+                  tabindex="-1"
+                >
+                  ⓘ
+                </button>
+                <span class="tooltip-content">
+                  The exact Excel cell containing this value, such as B3, F4,
+                  or F20.
+                </span>
+              </span>
+            </div>
+
+            <input
+              v-model="mapping.cell_ref"
+              type="text"
+              placeholder="B3"
+            />
+          </label>
+
+          <!-- Show Column Reference ONLY in Multi-Record Import ('column') mode -->
+          <label
+            v-if="activeTab === 'column'"
+            class="form-field"
+          >
+            <div class="field-label-row">
+              <span>Column Reference</span>
+
+              <span class="info-tooltip-wrapper">
+                <button
+                  type="button"
+                  class="info-icon-btn"
+                  aria-label="Column Reference Info"
+                  tabindex="-1"
+                >
+                  ⓘ
+                </button>
+                <span class="tooltip-content">
+                  The Excel column containing this field, such as A, B, C, or
+                  AA.
+                </span>
+              </span>
+            </div>
+
+            <input
+              v-model="mapping.column_ref"
+              type="text"
+              placeholder="A"
+            />
           </label>
 
           <label class="form-field">
@@ -472,19 +786,6 @@ onMounted(async () => {
               <option value="date">Date</option>
               <option value="integer">Integer</option>
             </select>
-          </label>
-
-          <label
-            v-if="mapping.mapping_type === 'cell'"
-            class="form-field"
-          >
-            <span>Cell Reference</span>
-
-            <input
-              v-model="mapping.cell_ref"
-              type="text"
-              placeholder="B2"
-            />
           </label>
 
           <label
@@ -514,6 +815,7 @@ onMounted(async () => {
       <!-- Form Actions -->
       <div class="form-actions">
         <button
+          type="button"
           class="btn btn-secondary"
           :disabled="saving"
           @click="closeForm"
@@ -522,6 +824,7 @@ onMounted(async () => {
         </button>
 
         <button
+          type="button"
           class="btn btn-primary"
           :disabled="saving"
           @click="saveTemplate"
@@ -760,8 +1063,200 @@ onMounted(async () => {
   gap: 18px;
 }
 
+/* Mode Selection Tabs */
+.mode-section {
+  margin-top: 28px;
+  margin-bottom: 24px;
+}
+
+.mode-tabs-header {
+  margin-bottom: 14px;
+}
+
+.mode-tabs-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.mode-tabs-header p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.mode-tab {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border: 1px solid var(--border-medium, #475569);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-subtle, rgba(30, 41, 59, 0.5));
+  color: var(--text-secondary, #94a3b8);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.mode-tab:hover {
+  border-color: var(--accent-brand, #6366f1);
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--text-primary, #f8fafc);
+}
+
+.mode-tab.active {
+  border-color: var(--accent-brand, #6366f1);
+  background: rgba(99, 102, 241, 0.14);
+  color: var(--text-primary, #f8fafc);
+  box-shadow: 0 0 0 1px var(--accent-brand, #6366f1);
+}
+
+.tab-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.tab-label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tab-title {
+  color: var(--text-primary, #f8fafc);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.tab-sub {
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+}
+
+.mode-banner {
+  padding: 20px;
+  border: 1px solid var(--border-default, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-md, 8px);
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.mode-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mode-title-row h4 {
+  margin: 0;
+  color: var(--text-primary, #f8fafc);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.mode-description {
+  margin: 6px 0 0;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.spreadsheet-options {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-default, rgba(255, 255, 255, 0.08));
+}
+
+/* Tooltips */
+.field-label-row {
+  display: flex;
+  align-items: center;
+}
+
+.info-tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.info-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid var(--border-medium, #475569);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted, #94a3b8);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: help;
+  transition: all 0.2s ease;
+}
+
+.info-icon-btn:hover {
+  border-color: var(--accent-brand, #6366f1);
+  background: var(--accent-brand, #6366f1);
+  color: #ffffff;
+}
+
+.tooltip-content {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-medium, #475569);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-card, #0f172a);
+  color: var(--text-primary, #f8fafc);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  z-index: 100;
+  white-space: normal;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.info-tooltip-wrapper:hover .tooltip-content,
+.info-tooltip-wrapper:focus-within .tooltip-content {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.tooltip-content::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 5px;
+  border-style: solid;
+  border-color: var(--border-medium, #475569) transparent transparent
+    transparent;
+}
+
 /* Form Controls */
-.form-field input:not([type="checkbox"]),
+.form-field input:not([type='checkbox']),
 .form-field select,
 .form-field textarea {
   width: 100%;
@@ -781,13 +1276,13 @@ onMounted(async () => {
     background 0.2s ease;
 }
 
-.form-field input:not([type="checkbox"])::placeholder,
+.form-field input:not([type='checkbox'])::placeholder,
 .form-field textarea::placeholder {
   color: var(--text-muted, #94a3b8);
   opacity: 1;
 }
 
-.form-field input:not([type="checkbox"]):focus,
+.form-field input:not([type='checkbox']):focus,
 .form-field select:focus,
 .form-field textarea:focus {
   outline: none;
@@ -806,11 +1301,11 @@ onMounted(async () => {
 }
 
 .form-field textarea {
-  min-height: 100px;
+  min-height: 80px;
   resize: vertical;
 }
 
-.checkbox-field input[type="checkbox"] {
+.checkbox-field input[type='checkbox'] {
   width: 16px;
   height: 16px;
   padding: 0;
@@ -1053,7 +1548,8 @@ onMounted(async () => {
   }
 
   .form-grid,
-  .mapping-grid {
+  .mapping-grid,
+  .mode-tabs {
     grid-template-columns: 1fr;
   }
 
@@ -1077,5 +1573,22 @@ onMounted(async () => {
   .mapping-heading .btn {
     width: 100%;
   }
+
+  .tooltip-content {
+    left: 0;
+    transform: translateY(4px);
+    max-width: 240px;
+  }
+
+  .info-tooltip-wrapper:hover .tooltip-content,
+  .info-tooltip-wrapper:focus-within .tooltip-content {
+    transform: translateY(0);
+  }
+
+  .tooltip-content::after {
+    left: 12px;
+    transform: none;
+  }
 }
 </style>
+e>
