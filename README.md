@@ -483,7 +483,7 @@ The test suite covers:
 * Full HTTP integration tests with transactional rollback, persistence verification, & cascade delete checks (`test_api_files.py`, `test_api_templates.py`, `test_api_imports.py`, `test_api_imports_persistence.py`)
 
 ```text
-============================= 125 passed in ~1.3s =============================
+============================= 139 passed in ~1.5s =============================
 ```
 
 ---
@@ -510,7 +510,7 @@ The test suite covers:
 ## 14. Current Limitations
 
 * **File Format:** Current extraction engine supports `.xlsx` files only (legacy `.xls` and CSV files are not yet supported).
-* **Mapping Strategy:** Supports single-cell coordinate mappings (`B2`, `F3`). Column-range and table mappings are planned for future milestones.
+* **Mapping Strategy:** Supports both single-cell coordinate mappings for individual invoice extraction (`B2`, `F3`) and multi-record column mappings for batch spreadsheet imports (`A`, `B`).
 * **Scope:** Focused on invoice header data (`company_name`, `invoice_number`, `invoice_date`, `total_amount`, `currency`). Line-item row extraction is not yet implemented.
 * **OpenPyXL Formula Caches:** OpenPyXL reads cached calculation results stored by Excel. Files generated programmatically without formula calculation return uncalculated formula indicators, which DataBridge detects and reports as diagnostic warnings or errors.
 * **Concurrency on Duplicate Check:** Duplicate checking is warning-based during validation; multi-user race conditions require future database uniqueness constraints when business policies are finalized.
@@ -524,9 +524,9 @@ The test suite covers:
 * [x] **Milestone 3:** Extraction Engine & Deterministic Normalizer.
 * [x] **Milestone 4:** Business Validation Layer & Diagnostic Preview.
 * [x] **Milestone 5:** Transactional Import Persistence & History (`POST /confirm`, `GET /imports`, batch traceability).
-* [ ] **Milestone 6:** Modern Web Frontend (Vue 3 + TypeScript + Vite) for visual file upload, template builder, diagnostic review, and import history.
-* [ ] **Future Milestone:** Column / range-based line-item extraction (tables of line items: item name, quantity, unit price).
-* [ ] **Future Milestone:** AI-assisted field mapping suggestions for unfamiliar Excel layouts.
+* [x] **Milestone 6:** Modern Web Frontend (Vue 3 + TypeScript + Vite) for visual file upload, template builder, diagnostic review, and import history.
+* [x] **Milestone 7:** Multi-Record Import & Column Mapping (batch imports using column letters like `A`, `B` with data start rows and header rows).
+* [ ] **Future Milestone:** Line-item row extraction within a single invoice (tables of line items: item name, quantity, unit price).
 * [ ] **Future Milestone:** PostgreSQL production deployment configuration and Docker containerization.
 
 ---
