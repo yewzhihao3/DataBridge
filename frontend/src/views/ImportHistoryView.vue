@@ -5,24 +5,22 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock,
-  Edit2,
   Eye,
   FileSpreadsheet,
   History,
   Loader2,
   RefreshCw,
-  Save,
   Trash2,
   X,
   XCircle,
 } from 'lucide-vue-next'
 
+import ImportDetailsModal from '@/components/history/ImportDetailsModal.vue'
 import { api } from '@/services/api'
 import type {
   ApiError,
   ImportBatchDetail,
   ImportBatchListItem,
-  InvoiceRecordRead,
   InvoiceRecordUpdate,
 } from '@/types/api'
 
@@ -160,18 +158,7 @@ function formatStatus(status: string): string {
     )
 }
 
-function formatAmount(
-  record: ImportBatchDetail['invoice_records'][number],
-): string {
-  if (
-    record.total_amount !== null &&
-    record.total_amount !== undefined
-  ) {
-    return `${record.currency || ''} ${record.total_amount}`.trim()
-  }
 
-  return '—'
-}
 
 async function loadImports(): Promise<void> {
   isLoading.value = true
@@ -275,54 +262,26 @@ async function deleteBatch(): Promise<void> {
   }
 }
 
-// ── Edit Invoice Record State ───────────────────────────────────────────────
-const editingRecord = ref<InvoiceRecordRead | null>(null)
-const editForm = ref<InvoiceRecordUpdate>({})
-const isSavingEdit = ref(false)
-const editError = ref('')
 
-function startEditRecord(record: InvoiceRecordRead): void {
-  editingRecord.value = record
-  editForm.value = {
-    company_name: record.company_name,
-    invoice_number: record.invoice_number,
-    invoice_date: record.invoice_date ?? null,
-    total_amount: record.total_amount ?? null,
-    currency: record.currency ?? null,
-  }
-  editError.value = ''
-}
 
-function cancelEdit(): void {
-  editingRecord.value = null
-  editForm.value = {}
-  editError.value = ''
-}
 
-async function saveRecord(): Promise<void> {
-  if (!editingRecord.value || !selectedImport.value) return
-  isSavingEdit.value = true
-  editError.value = ''
+async function handleSaveRecord(payload: { recordId: number; form: InvoiceRecordUpdate }): Promise<void> {
+  if (!selectedImport.value) return
   try {
     const updated = await api.updateInvoiceRecord(
       selectedImport.value.id,
-      editingRecord.value.id,
-      editForm.value,
+      payload.recordId,
+      payload.form,
     )
-    // Update in-place within selectedImport
     const idx = selectedImport.value.invoice_records.findIndex(
       (r) => r.id === updated.id,
     )
     if (idx !== -1) {
       selectedImport.value.invoice_records[idx] = updated
     }
-    editingRecord.value = null
-    editForm.value = {}
   } catch (error: unknown) {
     const apiError = error as Partial<ApiError>
-    editError.value = apiError.message || 'Failed to save changes.'
-  } finally {
-    isSavingEdit.value = false
+    throw new Error(apiError.message || 'Failed to save changes.')
   }
 }
 
@@ -741,334 +700,14 @@ onMounted(() => {
     </div>
 
     <!-- Import Details Modal -->
-    <div
+    <ImportDetailsModal
       v-if="selectedImport"
-      class="details-overlay"
-      @click.self="closeDetails"
-    >
-      <div class="details-modal">
-        <div class="modal-heading">
-          <div>
-            <div class="eyebrow">
-              <FileSpreadsheet :size="15" />
-              IMPORT DETAILS
-            </div>
-
-            <h2>
-              Batch #{{ selectedImport.id }}
-            </h2>
-          </div>
-
-          <button
-            class="close-button"
-            type="button"
-            aria-label="Close details"
-            @click="closeDetails"
-          >
-            <XCircle :size="21" />
-          </button>
-        </div>
-
-        <div class="detail-file">
-          <FileSpreadsheet :size="19" />
-
-          <div>
-            <strong>
-              {{ selectedImport.original_filename }}
-            </strong>
-
-            <span>
-              {{ selectedImport.template_name }}
-            </span>
-          </div>
-        </div>
-
-        <div class="detail-grid">
-          <div class="detail-item">
-            <span>Status</span>
-
-            <strong>
-              {{ formatStatus(selectedImport.status) }}
-            </strong>
-          </div>
-
-          <div class="detail-item">
-            <span>Records Imported</span>
-
-            <strong>
-              {{ selectedImport.record_count }}
-            </strong>
-          </div>
-
-          <div class="detail-item">
-            <span>Warnings</span>
-
-            <strong class="warning-text">
-              {{ selectedImport.warning_count }}
-            </strong>
-          </div>
-
-          <div class="detail-item">
-            <span>Imported At</span>
-
-            <strong>
-              {{ formatDate(selectedImport.imported_at) }}
-            </strong>
-          </div>
-        </div>
-
-        <!-- Invoice Records -->
-        <div class="detail-section">
-          <div class="detail-section-header">
-            <h3>Invoice Records</h3>
-            <span class="muted-value">{{ selectedImport.invoice_records.length }} record(s)</span>
-          </div>
-
-          <p
-            v-if="selectedImport.invoice_records.length === 0"
-            class="muted-value"
-          >
-            No invoice records available.
-          </p>
-
-          <div
-            v-else
-            class="record-list"
-          >
-            <div
-              v-for="record in selectedImport.invoice_records"
-              :key="record.id"
-              class="record-item"
-            >
-              <!-- In-line Edit Mode -->
-              <div v-if="editingRecord?.id === record.id" class="record-edit-form">
-                <div class="edit-form-header">
-                  <strong>Edit Record #{{ record.id }}</strong>
-                  <span class="muted-value">Editing canonical fields</span>
-                </div>
-
-                <div v-if="editError" class="modal-error">
-                  {{ editError }}
-                </div>
-
-                <div class="edit-fields-grid">
-                  <label class="edit-field">
-                    <span>Company Name</span>
-                    <input
-                      v-model="editForm.company_name"
-                      type="text"
-                      placeholder="Company Name"
-                    />
-                  </label>
-
-                  <label class="edit-field">
-                    <span>Invoice Number</span>
-                    <input
-                      v-model="editForm.invoice_number"
-                      type="text"
-                      placeholder="Invoice Number"
-                    />
-                  </label>
-
-                  <label class="edit-field">
-                    <span>Invoice Date</span>
-                    <input
-                      v-model="editForm.invoice_date"
-                      type="text"
-                      placeholder="YYYY-MM-DD"
-                    />
-                  </label>
-
-                  <label class="edit-field">
-                    <span>Total Amount</span>
-                    <input
-                      v-model.number="editForm.total_amount"
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                    />
-                  </label>
-
-                  <label class="edit-field">
-                    <span>Currency</span>
-                    <input
-                      v-model="editForm.currency"
-                      type="text"
-                      placeholder="e.g. MYR, USD"
-                    />
-                  </label>
-                </div>
-
-                <!-- Custom fields read-only notice -->
-                <div
-                  v-if="record.custom_fields && Object.keys(record.custom_fields).length > 0"
-                  class="custom-fields-box"
-                >
-                  <span class="custom-fields-title">Custom Fields (Preserved):</span>
-                  <div class="custom-chips">
-                    <span
-                      v-for="(val, key) in record.custom_fields"
-                      :key="key"
-                      class="custom-chip"
-                    >
-                      <strong>{{ key }}:</strong> {{ val }}
-                    </span>
-                  </div>
-                </div>
-
-                <div class="edit-form-actions">
-                  <button
-                    class="btn btn-secondary btn-small"
-                    type="button"
-                    :disabled="isSavingEdit"
-                    @click="cancelEdit"
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    class="btn btn-primary btn-small"
-                    type="button"
-                    :disabled="isSavingEdit"
-                    @click="saveRecord"
-                  >
-                    <Loader2 v-if="isSavingEdit" :size="13" class="animate-spin" />
-                    <Save v-else :size="13" />
-                    {{ isSavingEdit ? 'Saving...' : 'Save Changes' }}
-                  </button>
-                </div>
-              </div>
-
-              <!-- Normal Display Mode -->
-              <div v-else class="record-view-row">
-                <div class="record-info">
-                  <strong>
-                    {{ record.company_name }}
-                  </strong>
-
-                  <span>
-                    Invoice #{{ record.invoice_number }}
-                    <span v-if="record.source_row_number" class="mono text-muted" style="margin-left: 0.35rem; font-size: 0.75rem;">
-                      (Row {{ record.source_row_number }})
-                    </span>
-                  </span>
-
-                  <span>
-                    Date:
-                    {{ record.invoice_date ? formatDate(record.invoice_date) : '—' }}
-                  </span>
-
-                  <!-- Custom Fields display -->
-                  <div
-                    v-if="record.custom_fields && Object.keys(record.custom_fields).length > 0"
-                    class="custom-chips"
-                  >
-                    <span
-                      v-for="(val, key) in record.custom_fields"
-                      :key="key"
-                      class="custom-chip"
-                    >
-                      <strong>{{ key }}:</strong> {{ val }}
-                    </span>
-                  </div>
-                </div>
-
-                <div class="record-meta-actions">
-                  <strong class="record-amount">
-                    {{ formatAmount(record) }}
-                  </strong>
-
-                  <button
-                    class="btn btn-secondary btn-small"
-                    type="button"
-                    title="Edit Record"
-                    @click="startEditRecord(record)"
-                  >
-                    <Edit2 :size="13" />
-                    Edit
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Validation Issues -->
-        <div class="detail-section">
-          <h3>
-            Validation Issues
-          </h3>
-
-          <p
-            v-if="selectedImport.validation_issues.length === 0"
-            class="muted-value"
-          >
-            No validation issues recorded.
-          </p>
-
-          <div
-            v-else
-            class="record-list"
-          >
-            <div
-              v-for="issue in selectedImport.validation_issues"
-              :key="issue.id"
-              class="validation-item"
-            >
-              <div>
-                <strong>
-                  {{ issue.rule_id }}
-                </strong>
-
-                <span>
-                  {{ issue.message }}
-                </span>
-              </div>
-
-              <span
-                :class="
-                  issue.severity === 'warning'
-                    ? 'badge badge-warning'
-                    : 'badge badge-info'
-                "
-              >
-                {{ issue.severity }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div class="modal-actions space-between">
-          <button
-            class="btn btn-danger btn-small"
-            type="button"
-            :disabled="isDeleting"
-            @click="confirmDeleteBatch({
-              id: selectedImport.id,
-              source_file_id: selectedImport.source_file_id,
-              original_filename: selectedImport.original_filename,
-              template_id: selectedImport.template_id,
-              template_name: selectedImport.template_name,
-              status: selectedImport.status,
-              record_count: selectedImport.record_count,
-              warning_count: selectedImport.warning_count,
-              imported_at: selectedImport.imported_at,
-            })"
-          >
-            <Trash2 :size="14" />
-            Delete Batch
-          </button>
-
-          <button
-            class="btn btn-secondary"
-            type="button"
-            @click="closeDetails"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+      :import-batch="selectedImport"
+      :is-deleting="isDeleting"
+      @close="closeDetails"
+      @delete="confirmDeleteBatch"
+      @save-record="handleSaveRecord"
+    />
 
     <!-- Delete Confirmation Modal -->
     <div
