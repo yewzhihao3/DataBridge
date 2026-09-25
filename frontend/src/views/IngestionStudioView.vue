@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -6,6 +7,7 @@ import {
   Loader2,
   RotateCcw,
   UploadCloud,
+  FileText,
 } from 'lucide-vue-next'
 
 import FileUploadCard from '@/components/ingestion/FileUploadCard.vue'
@@ -49,6 +51,32 @@ const workflowSteps = [
   { number: 3, label: 'Preview' },
   { number: 4, label: 'Confirmation' },
 ]
+
+/** Extract company name from preview header fields (if present) */
+const previewCompanyName = computed(() => {
+  if (!previewResult.value) return null
+  const f = previewResult.value.fields.find((f) => f.field_name === 'company_name')
+  return f?.normalized_value ? String(f.normalized_value) : null
+})
+
+/** Extract invoice number from preview header fields (if present) */
+const previewInvoiceNumber = computed(() => {
+  if (!previewResult.value) return null
+  const f = previewResult.value.fields.find((f) => f.field_name === 'invoice_number')
+  return f?.normalized_value ? String(f.normalized_value) : null
+})
+
+/** Overall status text for the preview header */
+const overallStatusText = computed(() => {
+  if (!previewResult.value) return ''
+  if (hasValidationErrors.value) {
+    return `${previewResult.value.error_count} validation error${previewResult.value.error_count !== 1 ? 's' : ''}`
+  }
+  if (warningCount.value > 0) {
+    return `${warningCount.value} warning${warningCount.value !== 1 ? 's' : ''}`
+  }
+  return 'Ready to import'
+})
 </script>
 
 <template>
@@ -135,78 +163,56 @@ const workflowSteps = [
       v-if="currentStep >= 3 && previewResult"
       class="preview-section"
     >
-      <div class="section-heading">
-        <div>
+      <!-- Zen Data Preview Header -->
+      <div class="zen-preview-header">
+        <div class="zen-preview-identity">
           <div class="eyebrow">
-            <CheckCircle2 :size="16" />
-            EXTRACTION RESULTS
+            <FileText :size="16" />
+            EXTRACTION PREVIEW
           </div>
 
-          <h2>Validation & Preview</h2>
+          <h2 v-if="previewCompanyName || previewInvoiceNumber">
+            <span v-if="previewCompanyName">{{ previewCompanyName }}</span>
+            <span
+              v-if="previewCompanyName && previewInvoiceNumber"
+              class="zen-invoice-number"
+            >
+              {{ previewInvoiceNumber }}
+            </span>
+            <span v-else-if="previewInvoiceNumber">
+              Invoice {{ previewInvoiceNumber }}
+            </span>
+          </h2>
+          <h2 v-else>Extraction Preview</h2>
 
           <p>
-            Review the extracted values and validation results before
-            confirming the import.
+            Review the extracted values before confirming the import.
           </p>
         </div>
-      </div>
 
-      <!-- Summary Cards -->
-      <div class="summary-grid">
-        <div class="summary-card glass-card">
-          <span class="summary-label">
-            Extracted Fields
-          </span>
-
-          <strong>
-            {{ previewResult.fields.length }}
-          </strong>
-        </div>
-
-        <div v-if="previewResult.has_line_items" class="summary-card glass-card">
-          <span class="summary-label">
-            Line Items
-          </span>
-
-          <strong>
-            {{ previewResult.line_items?.length || 0 }}
-          </strong>
-        </div>
-
-        <div class="summary-card glass-card">
-          <span class="summary-label">
-            Errors
-          </span>
-
-          <strong class="error-text">
-            {{ previewResult.error_count }}
-          </strong>
-        </div>
-
-        <div class="summary-card glass-card">
-          <span class="summary-label">
-            Warnings
-          </span>
-
-          <strong class="warning-text">
-            {{ warningCount }}
-          </strong>
-        </div>
-
-        <div class="summary-card glass-card">
-          <span class="summary-label">
-            Import Status
-          </span>
-
-          <strong
-            :class="
-              hasValidationErrors
-                ? 'error-text'
-                : 'success-text'
-            "
+        <div class="zen-preview-status-wrap">
+          <div
+            class="zen-overall-status"
+            :class="{
+              'zen-overall-status--success': !hasValidationErrors && warningCount === 0,
+              'zen-overall-status--warning': !hasValidationErrors && warningCount > 0,
+              'zen-overall-status--error': hasValidationErrors,
+            }"
           >
-            {{ hasValidationErrors ? 'Blocked' : 'Ready' }}
-          </strong>
+            <CheckCircle2
+              v-if="!hasValidationErrors && warningCount === 0"
+              :size="16"
+            />
+            <AlertTriangle
+              v-else-if="!hasValidationErrors && warningCount > 0"
+              :size="16"
+            />
+            <AlertCircle
+              v-else
+              :size="16"
+            />
+            <span>{{ overallStatusText }}</span>
+          </div>
         </div>
       </div>
 
@@ -590,19 +596,38 @@ const workflowSteps = [
 .preview-section {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1.5rem;
 }
 
-.section-heading h2 {
+/* Zen Preview Header */
+
+.zen-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.zen-preview-identity h2 {
   margin: 0;
 
   color: var(--text-primary);
-  font-size: 1.4rem;
-  font-weight: 750;
-  letter-spacing: -0.025em;
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
 
-.section-heading p {
+.zen-invoice-number {
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+}
+
+.zen-preview-identity p {
   max-width: 700px;
   margin-top: 0.4rem;
 
@@ -611,45 +636,37 @@ const workflowSteps = [
   line-height: 1.6;
 }
 
-/* Summary Cards */
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1rem;
+.zen-preview-status-wrap {
+  flex-shrink: 0;
+  padding-top: 0.25rem;
 }
 
-.summary-card {
-  padding: 1.25rem;
-
-  border: 1px solid var(--border-default);
-
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease,
-    transform 0.2s ease;
+.zen-overall-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--radius-full);
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
-.summary-card:hover {
-  border-color: var(--border-medium);
-  background: var(--bg-card-hover);
-  transform: translateY(-2px);
+.zen-overall-status--success {
+  color: var(--status-success);
+  background: var(--status-success-bg);
+  border: 1px solid var(--status-success-border);
 }
 
-.summary-label {
-  display: block;
-  margin-bottom: 0.5rem;
-
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  font-weight: 500;
+.zen-overall-status--warning {
+  color: var(--status-warning);
+  background: var(--status-warning-bg);
+  border: 1px solid var(--status-warning-border);
 }
 
-.summary-card strong {
-  color: var(--text-primary);
-  font-size: 1.5rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+.zen-overall-status--error {
+  color: var(--status-error);
+  background: var(--status-error-bg);
+  border: 1px solid var(--status-error-border);
 }
 
 /* Text Colors */
@@ -923,12 +940,6 @@ const workflowSteps = [
 
 /* Responsive Layout */
 
-@media (max-width: 900px) {
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 768px) {
   .ingestion-page {
     padding-top: 1rem;
@@ -941,6 +952,15 @@ const workflowSteps = [
 
   .page-header h1 {
     font-size: 1.7rem;
+  }
+
+  .zen-preview-header {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .zen-preview-identity h2 {
+    font-size: 1.25rem;
   }
 
   .workflow-progress {
@@ -958,10 +978,6 @@ const workflowSteps = [
 }
 
 @media (max-width: 520px) {
-  .summary-grid {
-    grid-template-columns: 1fr;
-  }
-
   .success-details {
     grid-template-columns: 1fr;
   }
