@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { api } from '@/services/api'
@@ -11,6 +10,7 @@ import type {
 
 const templates = ref<TemplateSummary[]>([])
 const canonicalFields = ref<string[]>([])
+const canonicalLineItemFields = ref<string[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const deleting = ref<number | null>(null)
@@ -21,17 +21,18 @@ const successMessage = ref('')
 const isFormOpen = ref(false)
 const editingTemplateId = ref<number | null>(null)
 
-// Mode tab: 'cell' (Invoice Mapping) or 'column' (Multi-Record Import)
-const activeTab = ref<'cell' | 'column'>('cell')
+// Mode tab: 'invoice' (Invoice Template: Header + optional Line Items) or 'dataset' (Multi-Record Dataset)
+const templateType = ref<'invoice' | 'dataset'>('invoice')
 
-const form = reactive<TemplateCreate>({
+const form = reactive({
   name: '',
   description: '',
   file_type: 'xlsx',
   worksheet: '',
-  header_row: 1,
-  data_start_row: 2,
-  field_mappings: [],
+  header_row: 1 as number | null,
+  data_start_row: 2 as number | null,
+  header_mappings: [] as TemplateFieldMapping[],
+  line_item_mappings: [] as TemplateFieldMapping[],
 })
 
 const resetForm = () => {
@@ -41,9 +42,10 @@ const resetForm = () => {
   form.worksheet = ''
   form.header_row = 1
   form.data_start_row = 2
-  form.field_mappings = []
+  form.header_mappings = []
+  form.line_item_mappings = []
   editingTemplateId.value = null
-  activeTab.value = 'cell'
+  templateType.value = 'invoice'
 }
 
 const openCreateForm = () => {
@@ -58,80 +60,90 @@ const closeForm = () => {
   resetForm()
 }
 
-const customTargetActive = reactive<Record<number, boolean>>({})
+const customHeaderTargetActive = reactive<Record<number, boolean>>({})
+const customLineItemTargetActive = reactive<Record<number, boolean>>({})
 
-const isCanonicalOrEmpty = (field: string | null | undefined): boolean => {
+const isCanonicalHeaderOrEmpty = (field: string | null | undefined): boolean => {
   if (!field) return true
   return canonicalFields.value.includes(field)
 }
 
-const handleTargetFieldChange = (
+const isCanonicalLineItemOrEmpty = (field: string | null | undefined): boolean => {
+  if (!field) return true
+  return canonicalLineItemFields.value.includes(field)
+}
+
+const handleHeaderTargetChange = (
   event: Event,
   index: number,
   mapping: TemplateFieldMapping,
 ) => {
   const value = (event.target as HTMLSelectElement).value
   if (value === '__custom__') {
-    customTargetActive[index] = true
-    if (isCanonicalOrEmpty(mapping.target_field)) {
+    customHeaderTargetActive[index] = true
+    if (isCanonicalHeaderOrEmpty(mapping.target_field)) {
       mapping.target_field = ''
     }
   } else {
-    customTargetActive[index] = false
+    customHeaderTargetActive[index] = false
     mapping.target_field = value
   }
 }
 
-const switchTab = (targetTab: 'cell' | 'column') => {
-  if (activeTab.value === targetTab) return
-
-  // Check if switching might alter populated references
-  const hasIncompatibleData = form.field_mappings.some((m) => {
-    if (targetTab === 'column') {
-      return !!m.cell_ref?.trim()
-    } else {
-      return !!m.column_ref?.trim()
+const handleLineItemTargetChange = (
+  event: Event,
+  index: number,
+  mapping: TemplateFieldMapping,
+) => {
+  const value = (event.target as HTMLSelectElement).value
+  if (value === '__custom__') {
+    customLineItemTargetActive[index] = true
+    if (isCanonicalLineItemOrEmpty(mapping.target_field)) {
+      mapping.target_field = ''
     }
-  })
+  } else {
+    customLineItemTargetActive[index] = false
+    mapping.target_field = value
+  }
+}
 
-  if (hasIncompatibleData) {
-    const fromName =
-      activeTab.value === 'cell' ? 'Invoice Mapping' : 'Multi-Record Import'
-    const toName =
-      targetTab === 'cell' ? 'Invoice Mapping' : 'Multi-Record Import'
-    const confirmMessage = `Switching from ${fromName} to ${toName} will convert your field mapping configuration. Are you sure you want to switch?`
+const switchTemplateType = (targetType: 'invoice' | 'dataset') => {
+  if (templateType.value === targetType) return
+
+  const hasData = form.header_mappings.length > 0 || form.line_item_mappings.length > 0
+  if (hasData) {
+    const fromName = templateType.value === 'invoice' ? 'Invoice Template' : 'Dataset Template'
+    const toName = targetType === 'invoice' ? 'Invoice Template' : 'Dataset Template'
+    const confirmMessage = `Switching from ${fromName} to ${toName} will reconfigure your field mapping layout. Do you want to switch?`
     if (!window.confirm(confirmMessage)) {
       return
     }
   }
 
-  activeTab.value = targetTab
+  templateType.value = targetType
 
-  // Update mapping_type for all mappings and attempt smart reference preservation
-  form.field_mappings.forEach((mapping) => {
-    mapping.mapping_type = targetTab
-    if (targetTab === 'column') {
-      // If cell_ref is e.g. "B4", extract column "B"
-      if (mapping.cell_ref && !mapping.column_ref) {
-        const match = mapping.cell_ref.trim().match(/^([A-Za-z]+)/)
-        if (match) {
-          mapping.column_ref = match[1].toUpperCase()
-        }
-      }
-    } else if (targetTab === 'cell') {
-      // If column_ref is e.g. "B", set cell_ref to "B1" if empty
-      if (mapping.column_ref && !mapping.cell_ref) {
-        mapping.cell_ref = `${mapping.column_ref.trim().toUpperCase()}1`
-      }
-    }
-  })
+  if (targetType === 'dataset') {
+    // For dataset templates, all header mappings use columns
+    form.header_mappings.forEach((m) => {
+      m.mapping_type = 'column'
+      m.mapping_group = 'header'
+    })
+    form.line_item_mappings = []
+  } else {
+    // For invoice templates, header mappings use cell references
+    form.header_mappings.forEach((m) => {
+      m.mapping_type = 'cell'
+      m.mapping_group = 'header'
+    })
+  }
 }
 
-const addMapping = () => {
-  form.field_mappings.push({
+const addHeaderMapping = () => {
+  form.header_mappings.push({
     field_name: '',
     target_field: '',
-    mapping_type: activeTab.value,
+    mapping_group: 'header',
+    mapping_type: templateType.value === 'invoice' ? 'cell' : 'column',
     cell_ref: '',
     column_ref: '',
     is_required: false,
@@ -140,14 +152,37 @@ const addMapping = () => {
   })
 }
 
-const removeMapping = (index: number) => {
-  delete customTargetActive[index]
-  form.field_mappings.splice(index, 1)
+const removeHeaderMapping = (index: number) => {
+  delete customHeaderTargetActive[index]
+  form.header_mappings.splice(index, 1)
+}
+
+const addLineItemMapping = () => {
+  form.line_item_mappings.push({
+    field_name: '',
+    target_field: '',
+    mapping_group: 'line_item',
+    mapping_type: 'column',
+    column_ref: '',
+    is_required: false,
+    data_type: 'text',
+    date_format: '',
+  })
+}
+
+const removeLineItemMapping = (index: number) => {
+  delete customLineItemTargetActive[index]
+  form.line_item_mappings.splice(index, 1)
 }
 
 const loadCanonicalFields = async () => {
   try {
-    canonicalFields.value = await api.listCanonicalFields()
+    const [headerFields, lineFields] = await Promise.all([
+      api.listCanonicalFields(),
+      api.listCanonicalLineItemFields(),
+    ])
+    canonicalFields.value = headerFields
+    canonicalLineItemFields.value = lineFields
   } catch (error) {
     console.error('Failed to load canonical fields:', error)
   }
@@ -181,29 +216,40 @@ const editTemplate = async (template: TemplateSummary) => {
     form.header_row = detail.header_row || 1
     form.data_start_row = detail.data_start_row || 2
 
-    // Automatically detect mode based on existing field mappings
-    const hasColumnMapping = detail.field_mappings.some(
-      (m) => m.mapping_type === 'column',
-    )
-    activeTab.value = hasColumnMapping ? 'column' : 'cell'
+    const detectedType = detail.template_type ||
+      (detail.field_mappings.every((m) => m.mapping_type === 'column') ? 'dataset' : 'invoice')
+    templateType.value = detectedType
 
-    form.field_mappings = detail.field_mappings.map((mapping) => ({
-      id: mapping.id,
-      field_name: mapping.field_name,
-      target_field: mapping.target_field || '',
-      mapping_type: mapping.mapping_type || activeTab.value,
-      cell_ref: mapping.cell_ref || '',
-      column_ref: mapping.column_ref || '',
-      is_required: mapping.is_required,
-      data_type: mapping.data_type,
-      date_format: mapping.date_format || '',
-    }))
+    const headers: TemplateFieldMapping[] = []
+    const lineItems: TemplateFieldMapping[] = []
 
+    for (const m of detail.field_mappings) {
+      const mappingGroup = m.mapping_group || 'header'
+      const item: TemplateFieldMapping = {
+        id: m.id,
+        field_name: m.field_name,
+        target_field: m.target_field || '',
+        mapping_group: mappingGroup,
+        mapping_type: m.mapping_type,
+        cell_ref: m.cell_ref || '',
+        column_ref: m.column_ref || '',
+        is_required: m.is_required,
+        data_type: m.data_type,
+        date_format: m.date_format || '',
+      }
+      if (mappingGroup === 'line_item') {
+        lineItems.push(item)
+      } else {
+        headers.push(item)
+      }
+    }
+
+    form.header_mappings = headers
+    form.line_item_mappings = lineItems
     editingTemplateId.value = detail.id
     isFormOpen.value = true
   } catch (error: any) {
-    errorMessage.value =
-      error.message || 'Failed to load template details.'
+    errorMessage.value = error.message || 'Failed to load template details.'
   } finally {
     loading.value = false
   }
@@ -220,7 +266,7 @@ const validateForm = (): boolean => {
     return false
   }
 
-  if (activeTab.value === 'column') {
+  if (templateType.value === 'dataset' || form.line_item_mappings.length > 0) {
     if (!form.header_row || form.header_row < 1) {
       errorMessage.value = 'Header row must be at least 1.'
       return false
@@ -231,24 +277,33 @@ const validateForm = (): boolean => {
     }
   }
 
-  if (form.field_mappings.length === 0) {
+  if (form.header_mappings.length === 0 && form.line_item_mappings.length === 0) {
     errorMessage.value = 'Add at least one field mapping.'
     return false
   }
 
-  for (const mapping of form.field_mappings) {
+  for (const mapping of form.header_mappings) {
     if (!mapping.field_name.trim()) {
       errorMessage.value = 'Every mapping must have a field name.'
       return false
     }
-
-    if (activeTab.value === 'cell' && !mapping.cell_ref?.trim()) {
-      errorMessage.value = `Cell reference is required for "${mapping.field_name}".`
+    if (templateType.value === 'invoice' && !mapping.cell_ref?.trim()) {
+      errorMessage.value = `Cell reference (e.g. B2) is required for header field "${mapping.field_name}".`
       return false
     }
+    if (templateType.value === 'dataset' && !mapping.column_ref?.trim()) {
+      errorMessage.value = `Column reference (e.g. A) is required for field "${mapping.field_name}".`
+      return false
+    }
+  }
 
-    if (activeTab.value === 'column' && !mapping.column_ref?.trim()) {
-      errorMessage.value = `Column reference is required for "${mapping.field_name}".`
+  for (const mapping of form.line_item_mappings) {
+    if (!mapping.field_name.trim()) {
+      errorMessage.value = 'Every line item mapping must have a field name.'
+      return false
+    }
+    if (!mapping.column_ref?.trim()) {
+      errorMessage.value = `Column reference (e.g. A) is required for line item "${mapping.field_name}".`
       return false
     }
   }
@@ -267,39 +322,54 @@ const saveTemplate = async () => {
   saving.value = true
 
   try {
+    const combinedMappings: TemplateFieldMapping[] = []
+
+    // Header mappings
+    form.header_mappings.forEach((m) => {
+      combinedMappings.push({
+        field_name: m.field_name.trim(),
+        target_field: m.target_field?.trim() || undefined,
+        mapping_group: 'header',
+        mapping_type: templateType.value === 'invoice' ? 'cell' : 'column',
+        cell_ref: templateType.value === 'invoice' ? m.cell_ref?.trim() || undefined : undefined,
+        column_ref: templateType.value === 'dataset' ? m.column_ref?.trim() || undefined : undefined,
+        is_required: m.is_required,
+        data_type: m.data_type,
+        date_format: m.date_format?.trim() || undefined,
+      })
+    })
+
+    // Line item mappings (Invoice mode only)
+    if (templateType.value === 'invoice') {
+      form.line_item_mappings.forEach((m) => {
+        combinedMappings.push({
+          field_name: m.field_name.trim(),
+          target_field: m.target_field?.trim() || undefined,
+          mapping_group: 'line_item',
+          mapping_type: 'column',
+          column_ref: m.column_ref?.trim() || undefined,
+          is_required: m.is_required,
+          data_type: m.data_type,
+          date_format: m.date_format?.trim() || undefined,
+        })
+      })
+    }
+
     const payload: TemplateCreate = {
       name: form.name.trim(),
       description: form.description?.trim() || '',
+      template_type: templateType.value,
       file_type: form.file_type,
       worksheet: form.worksheet.trim(),
       header_row:
-        activeTab.value === 'column'
-          ? form.header_row
-            ? Number(form.header_row)
-            : 1
+        templateType.value === 'dataset' || form.line_item_mappings.length > 0
+          ? form.header_row ? Number(form.header_row) : 1
           : undefined,
       data_start_row:
-        activeTab.value === 'column'
-          ? form.data_start_row
-            ? Number(form.data_start_row)
-            : 2
+        templateType.value === 'dataset' || form.line_item_mappings.length > 0
+          ? form.data_start_row ? Number(form.data_start_row) : 2
           : undefined,
-      field_mappings: form.field_mappings.map((mapping) => ({
-        field_name: mapping.field_name.trim(),
-        target_field: mapping.target_field?.trim() || undefined,
-        mapping_type: activeTab.value,
-        cell_ref:
-          activeTab.value === 'cell'
-            ? mapping.cell_ref?.trim() || undefined
-            : undefined,
-        column_ref:
-          activeTab.value === 'column'
-            ? mapping.column_ref?.trim() || undefined
-            : undefined,
-        is_required: mapping.is_required,
-        data_type: mapping.data_type,
-        date_format: mapping.date_format?.trim() || undefined,
-      })),
+      field_mappings: combinedMappings,
     }
 
     if (editingTemplateId.value !== null) {
@@ -358,11 +428,9 @@ onMounted(async () => {
     <div class="page-header">
       <div>
         <div class="eyebrow">CONFIGURATION</div>
-
         <h1>Template Manager</h1>
-
         <p class="page-description">
-          Create and manage templates for importing business data.
+          Create and manage templates for single invoices with line items or multi-record datasets.
         </p>
       </div>
 
@@ -394,13 +462,8 @@ onMounted(async () => {
           <div class="eyebrow">
             {{ editingTemplateId !== null ? 'EDITING' : 'NEW TEMPLATE' }}
           </div>
-
           <h2>
-            {{
-              editingTemplateId !== null
-                ? 'Edit Template'
-                : 'Create Template'
-            }}
+            {{ editingTemplateId !== null ? 'Edit Template' : 'Create Template' }}
           </h2>
         </div>
 
@@ -416,23 +479,21 @@ onMounted(async () => {
       <!-- General Information -->
       <div class="section-heading">
         <h3>General Information</h3>
-        <p>Configure the basic details of this import template.</p>
+        <p>Configure basic metadata and target spreadsheet worksheet.</p>
       </div>
 
       <div class="form-grid">
         <label class="form-field">
           <span>Template Name</span>
-
           <input
             v-model="form.name"
             type="text"
-            placeholder="Supplier A Invoice"
+            placeholder="Standard Invoice Template"
           />
         </label>
 
         <label class="form-field">
           <span>File Type</span>
-
           <select v-model="form.file_type">
             <option value="xlsx">XLSX</option>
             <option value="xls">XLS</option>
@@ -442,7 +503,6 @@ onMounted(async () => {
 
         <label class="form-field">
           <span>Worksheet Name</span>
-
           <input
             v-model="form.worksheet"
             type="text"
@@ -452,7 +512,6 @@ onMounted(async () => {
 
         <label class="form-field form-field-wide">
           <span>Description</span>
-
           <textarea
             v-model="form.description"
             rows="2"
@@ -461,120 +520,96 @@ onMounted(async () => {
         </label>
       </div>
 
-      <!-- Import Mode Selection Tabs -->
+      <!-- Template Type Selection Tabs -->
       <div class="mode-section">
         <div class="mode-tabs-header">
-          <h3>Import Mode</h3>
-          <p>Select how data is structured in your source files.</p>
+          <h3>Template Type</h3>
+          <p>Choose whether this template extracts a single invoice or imports a multi-row dataset.</p>
         </div>
 
         <div class="mode-tabs" role="tablist">
           <button
             type="button"
             role="tab"
-            :aria-selected="activeTab === 'cell'"
+            :aria-selected="templateType === 'invoice'"
             class="mode-tab"
-            :class="{ active: activeTab === 'cell' }"
-            @click="switchTab('cell')"
+            :class="{ active: templateType === 'invoice' }"
+            @click="switchTemplateType('invoice')"
           >
             <div class="tab-icon">📄</div>
             <div class="tab-label-group">
-              <span class="tab-title">Invoice Mapping</span>
-              <span class="tab-sub">Single Invoice Cell Extraction</span>
+              <span class="tab-title">Invoice Template</span>
+              <span class="tab-sub">Extract invoice information and optional product/service line items</span>
             </div>
           </button>
 
           <button
             type="button"
             role="tab"
-            :aria-selected="activeTab === 'column'"
+            :aria-selected="templateType === 'dataset'"
             class="mode-tab"
-            :class="{ active: activeTab === 'column' }"
-            @click="switchTab('column')"
+            :class="{ active: templateType === 'dataset' }"
+            @click="switchTemplateType('dataset')"
           >
             <div class="tab-icon">📊</div>
             <div class="tab-label-group">
-              <span class="tab-title">Multi-Record Import</span>
-              <span class="tab-sub">Spreadsheet Row Dataset</span>
+              <span class="tab-title">Dataset Template</span>
+              <span class="tab-sub">Import structured spreadsheets containing multiple independent records</span>
             </div>
           </button>
         </div>
 
-        <!-- Mode Banner / Header Details -->
+        <!-- Banner for Selected Mode -->
         <div class="mode-banner glass-card">
-          <div v-if="activeTab === 'cell'" class="mode-info">
+          <div v-if="templateType === 'invoice'" class="mode-info">
             <div class="mode-title-row">
-              <h4>Invoice Mapping</h4>
-
-              <span class="info-tooltip-wrapper">
-                <button
-                  type="button"
-                  class="info-icon-btn"
-                  aria-label="Invoice Mapping Info"
-                  tabindex="-1"
-                >
-                  ⓘ
-                </button>
-                <span class="tooltip-content">
-                  Use Invoice Mapping when one uploaded file represents one
-                  invoice. Each field is extracted from a specific Excel cell,
-                  such as Invoice Number → F4 or Total Amount → F20.
-                </span>
-              </span>
+              <h4>Invoice Template</h4>
             </div>
-
             <p class="mode-description">
-              Extract fields from specific cells in a single invoice.
+              Extracts high-level invoice details (supplier, invoice number, totals) from exact Excel cell coordinates, with optional repeating product/service line items extracted from table columns.
             </p>
+
+            <!-- Line Items Table Parameters -->
+            <div v-if="form.line_item_mappings.length > 0" class="form-grid spreadsheet-options">
+              <label class="form-field">
+                <div class="field-label-row">
+                  <span>Line Items Header Row</span>
+                </div>
+                <input
+                  v-model.number="form.header_row"
+                  type="number"
+                  min="1"
+                  placeholder="7"
+                />
+              </label>
+
+              <label class="form-field">
+                <div class="field-label-row">
+                  <span>Line Items Data Start Row</span>
+                </div>
+                <input
+                  v-model.number="form.data_start_row"
+                  type="number"
+                  min="1"
+                  placeholder="8"
+                />
+              </label>
+            </div>
           </div>
 
           <div v-else class="mode-info">
             <div class="mode-title-row">
-              <h4>Multi-Record Import</h4>
-
-              <span class="info-tooltip-wrapper">
-                <button
-                  type="button"
-                  class="info-icon-btn"
-                  aria-label="Multi-Record Import Info"
-                  tabindex="-1"
-                >
-                  ⓘ
-                </button>
-                <span class="tooltip-content">
-                  Use Multi-Record Import for spreadsheet-style datasets
-                  where each row represents a separate record. For example, Row
-                  2 may contain Invoice 001 and Row 3 may contain Invoice 002.
-                </span>
-              </span>
+              <h4>Dataset Template</h4>
             </div>
-
             <p class="mode-description">
-              Import multiple records from a structured spreadsheet where each
-              row represents one record.
+              Imports multiple independent invoice records from rows in a structured spreadsheet dataset.
             </p>
 
-            <!-- Spreadsheet row parameters for Multi-Record Import mode -->
             <div class="form-grid spreadsheet-options">
               <label class="form-field">
                 <div class="field-label-row">
                   <span>Header Row</span>
-
-                  <span class="info-tooltip-wrapper">
-                    <button
-                      type="button"
-                      class="info-icon-btn"
-                      aria-label="Header Row Info"
-                      tabindex="-1"
-                    >
-                      ⓘ
-                    </button>
-                    <span class="tooltip-content">
-                      The spreadsheet row containing the column headings.
-                    </span>
-                  </span>
                 </div>
-
                 <input
                   v-model.number="form.header_row"
                   type="number"
@@ -586,23 +621,7 @@ onMounted(async () => {
               <label class="form-field">
                 <div class="field-label-row">
                   <span>Data Start Row</span>
-
-                  <span class="info-tooltip-wrapper">
-                    <button
-                      type="button"
-                      class="info-icon-btn"
-                      aria-label="Data Start Row Info"
-                      tabindex="-1"
-                    >
-                      ⓘ
-                    </button>
-                    <span class="tooltip-content">
-                      The first spreadsheet row containing an actual record.
-                      Rows before this are ignored.
-                    </span>
-                  </span>
                 </div>
-
                 <input
                   v-model.number="form.data_start_row"
                   type="number"
@@ -615,54 +634,46 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Field Mappings -->
+      <!-- Section 1: Header / Dataset Fields -->
       <div class="section-heading mapping-heading">
         <div>
-          <h3>Field Mappings</h3>
-
-          <p v-if="activeTab === 'cell'">
-            Map fields to specific cell coordinates (e.g. B3, F4).
+          <h3>{{ templateType === 'invoice' ? 'Invoice Header Fields' : 'Dataset Record Fields' }}</h3>
+          <p v-if="templateType === 'invoice'">
+            Map invoice fields to specific cell coordinates (e.g. B2, F4, E17).
           </p>
           <p v-else>
-            Map fields to spreadsheet column letters (e.g. A, B, C).
+            Map record fields to spreadsheet column letters (e.g. A, B, C).
           </p>
         </div>
 
-        <button type="button" class="btn btn-secondary" @click="addMapping">
+        <button type="button" class="btn btn-secondary" @click="addHeaderMapping">
           <span>+</span>
-          Add Mapping
+          Add Field
+        </button>
+      </div>
+
+      <div v-if="form.header_mappings.length === 0" class="empty-state compact">
+        <p>No header field mappings configured.</p>
+        <button type="button" class="btn btn-secondary" @click="addHeaderMapping">
+          Add First Header Field
         </button>
       </div>
 
       <div
-        v-if="form.field_mappings.length === 0"
-        class="empty-state compact"
-      >
-        <p>No field mappings added yet.</p>
-
-        <button type="button" class="btn btn-secondary" @click="addMapping">
-          Add Your First Mapping
-        </button>
-      </div>
-
-      <div
-        v-for="(mapping, index) in form.field_mappings"
-        :key="index"
+        v-for="(mapping, index) in form.header_mappings"
+        :key="`header-${index}`"
         class="mapping-card"
       >
         <div class="mapping-card-header">
           <div class="mapping-title">
-            <span class="mapping-number">
-              {{ String(index + 1).padStart(2, '0') }}
-            </span>
-
+            <span class="mapping-number">{{ String(index + 1).padStart(2, '0') }}</span>
             <strong>Field Mapping {{ index + 1 }}</strong>
           </div>
 
           <button
             type="button"
             class="btn btn-danger btn-small"
-            @click="removeMapping(index)"
+            @click="removeHeaderMapping(index)"
           >
             Remove
           </button>
@@ -671,105 +682,63 @@ onMounted(async () => {
         <div class="mapping-grid">
           <label class="form-field">
             <span>Field Name</span>
-
             <input
               v-model="mapping.field_name"
               type="text"
-              placeholder="company_name"
+              placeholder="invoice_number"
             />
           </label>
 
           <label class="form-field">
-            <span>Target Field</span>
-
+            <span>Target Canonical Field</span>
             <select
               :value="
-                isCanonicalOrEmpty(mapping.target_field) &&
-                !customTargetActive[index]
+                isCanonicalHeaderOrEmpty(mapping.target_field) &&
+                !customHeaderTargetActive[index]
                   ? mapping.target_field || ''
                   : '__custom__'
               "
-              @change="handleTargetFieldChange($event, index, mapping)"
+              @change="handleHeaderTargetChange($event, index, mapping)"
             >
-              <option value="">(Auto / Match Field Name)</option>
-              <option
-                v-for="cf in canonicalFields"
-                :key="cf"
-                :value="cf"
-              >
+              <option value="">(Auto / Custom Field)</option>
+              <option v-for="cf in canonicalFields" :key="cf" :value="cf">
                 {{ cf }}
               </option>
-              <option value="__custom__">Custom target field...</option>
+              <option value="__custom__">Custom Field Name...</option>
             </select>
+          </label>
 
+          <label
+            v-if="customHeaderTargetActive[index]"
+            class="form-field"
+          >
+            <span>Custom Target Name</span>
             <input
-              v-if="
-                (!isCanonicalOrEmpty(mapping.target_field) &&
-                  mapping.target_field !== '') ||
-                customTargetActive[index]
-              "
               v-model="mapping.target_field"
               type="text"
-              placeholder="Enter custom target field name..."
-              style="margin-top: 0.5rem;"
+              placeholder="e.g. po_reference"
             />
           </label>
 
-          <!-- Show Cell Reference ONLY in Invoice Mapping ('cell') mode -->
+          <!-- Cell Reference for Invoice Header -->
           <label
-            v-if="activeTab === 'cell'"
+            v-if="templateType === 'invoice'"
             class="form-field"
           >
-            <div class="field-label-row">
-              <span>Cell Reference</span>
-
-              <span class="info-tooltip-wrapper">
-                <button
-                  type="button"
-                  class="info-icon-btn"
-                  aria-label="Cell Reference Info"
-                  tabindex="-1"
-                >
-                  ⓘ
-                </button>
-                <span class="tooltip-content">
-                  The exact Excel cell containing this value, such as B3, F4,
-                  or F20.
-                </span>
-              </span>
-            </div>
-
+            <span>Cell Reference</span>
             <input
               v-model="mapping.cell_ref"
               type="text"
-              placeholder="B3"
+              placeholder="B2"
             />
           </label>
 
-          <!-- Show Column Reference ONLY in Multi-Record Import ('column') mode -->
+          <!-- Column Reference for Dataset -->
           <label
-            v-if="activeTab === 'column'"
+            v-if="templateType === 'dataset'"
             class="form-field"
           >
-            <div class="field-label-row">
-              <span>Column Reference</span>
-
-              <span class="info-tooltip-wrapper">
-                <button
-                  type="button"
-                  class="info-icon-btn"
-                  aria-label="Column Reference Info"
-                  tabindex="-1"
-                >
-                  ⓘ
-                </button>
-                <span class="tooltip-content">
-                  The Excel column containing this field, such as A, B, C, or
-                  AA.
-                </span>
-              </span>
-            </div>
-
+            <span>Column Reference</span>
             <input
               v-model="mapping.column_ref"
               type="text"
@@ -779,10 +748,9 @@ onMounted(async () => {
 
           <label class="form-field">
             <span>Data Type</span>
-
             <select v-model="mapping.data_type">
               <option value="text">Text</option>
-              <option value="decimal">Decimal</option>
+              <option value="decimal">Decimal / Currency</option>
               <option value="date">Date</option>
               <option value="integer">Integer</option>
             </select>
@@ -792,8 +760,7 @@ onMounted(async () => {
             v-if="mapping.data_type === 'date'"
             class="form-field"
           >
-            <span>Date Format</span>
-
+            <span>Date Format (Optional)</span>
             <input
               v-model="mapping.date_format"
               type="text"
@@ -806,14 +773,127 @@ onMounted(async () => {
               v-model="mapping.is_required"
               type="checkbox"
             />
-
             <span>Required field</span>
           </label>
         </div>
       </div>
 
+      <!-- Section 2: Optional Line Items (Invoice Templates Only) -->
+      <div v-if="templateType === 'invoice'" class="line-items-block" style="margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--border-default);">
+        <div class="section-heading mapping-heading">
+          <div>
+            <h3>Line Item Breakdown (Optional)</h3>
+            <p>
+              Extract repeating product or service rows (e.g. Description, Quantity, Unit Price, Tax Rate, Tax Amount, Amount) mapped by column letters.
+            </p>
+          </div>
+
+          <button type="button" class="btn btn-secondary" @click="addLineItemMapping">
+            <span>+</span>
+            Add Line Item Column
+          </button>
+        </div>
+
+        <div v-if="form.line_item_mappings.length === 0" class="empty-state compact">
+          <p>No line item columns configured. (Header-only invoice)</p>
+          <button type="button" class="btn btn-secondary" @click="addLineItemMapping">
+            + Enable Line Item Extraction
+          </button>
+        </div>
+
+        <div
+          v-for="(mapping, index) in form.line_item_mappings"
+          :key="`line-${index}`"
+          class="mapping-card"
+        >
+          <div class="mapping-card-header">
+            <div class="mapping-title">
+              <span class="mapping-number">{{ String(index + 1).padStart(2, '0') }}</span>
+              <strong>Line Item Column {{ index + 1 }}</strong>
+            </div>
+
+            <button
+              type="button"
+              class="btn btn-danger btn-small"
+              @click="removeLineItemMapping(index)"
+            >
+              Remove
+            </button>
+          </div>
+
+          <div class="mapping-grid">
+            <label class="form-field">
+              <span>Field Name</span>
+              <input
+                v-model="mapping.field_name"
+                type="text"
+                placeholder="description"
+              />
+            </label>
+
+            <label class="form-field">
+              <span>Target Canonical Line Field</span>
+              <select
+                :value="
+                  isCanonicalLineItemOrEmpty(mapping.target_field) &&
+                  !customLineItemTargetActive[index]
+                    ? mapping.target_field || ''
+                    : '__custom__'
+                "
+                @change="handleLineItemTargetChange($event, index, mapping)"
+              >
+                <option value="">(Auto / Match Field Name)</option>
+                <option v-for="cf in canonicalLineItemFields" :key="cf" :value="cf">
+                  {{ cf }}
+                </option>
+                <option value="__custom__">Custom Field Name...</option>
+              </select>
+            </label>
+
+            <label
+              v-if="customLineItemTargetActive[index]"
+              class="form-field"
+            >
+              <span>Custom Target Name</span>
+              <input
+                v-model="mapping.target_field"
+                type="text"
+                placeholder="e.g. sku_code"
+              />
+            </label>
+
+            <label class="form-field">
+              <span>Column Letter</span>
+              <input
+                v-model="mapping.column_ref"
+                type="text"
+                placeholder="A"
+              />
+            </label>
+
+            <label class="form-field">
+              <span>Data Type</span>
+              <select v-model="mapping.data_type">
+                <option value="text">Text</option>
+                <option value="decimal">Decimal / Numeric</option>
+                <option value="date">Date</option>
+                <option value="integer">Integer</option>
+              </select>
+            </label>
+
+            <label class="checkbox-field">
+              <input
+                v-model="mapping.is_required"
+                type="checkbox"
+              />
+              <span>Required for each line</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <!-- Form Actions -->
-      <div class="form-actions">
+      <div class="form-actions" style="margin-top: 32px;">
         <button
           type="button"
           class="btn btn-secondary"
@@ -843,13 +923,8 @@ onMounted(async () => {
 
       <div v-else-if="templates.length === 0" class="glass-card empty-state">
         <div class="empty-icon">▤</div>
-
         <h3>No templates found</h3>
-
-        <p>
-          Create your first import template to get started.
-        </p>
-
+        <p>Create your first import template to get started.</p>
         <button class="btn btn-primary" @click="openCreateForm">
           Create Template
         </button>
@@ -875,8 +950,9 @@ onMounted(async () => {
           <table class="template-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>File Type</th>
+                <th>Template Name</th>
+                <th>Type</th>
+                <th>File Format</th>
                 <th>Worksheet</th>
                 <th>Mappings</th>
                 <th>Updated</th>
@@ -892,11 +968,19 @@ onMounted(async () => {
                 <td>
                   <div class="template-name">
                     <strong>{{ template.name }}</strong>
-
                     <small v-if="template.description">
                       {{ template.description }}
                     </small>
                   </div>
+                </td>
+
+                <td>
+                  <span
+                    class="badge"
+                    :class="template.template_type === 'dataset' ? 'badge-dataset' : 'badge-invoice'"
+                  >
+                    {{ template.template_type === 'dataset' ? 'Dataset Template' : 'Invoice Template' }}
+                  </span>
                 </td>
 
                 <td>
@@ -934,11 +1018,7 @@ onMounted(async () => {
                       :disabled="deleting === template.id"
                       @click="deleteTemplate(template)"
                     >
-                      {{
-                        deleting === template.id
-                          ? 'Deleting...'
-                          : 'Delete'
-                      }}
+                      {{ deleting === template.id ? 'Deleting...' : 'Delete' }}
                     </button>
                   </div>
                 </td>
@@ -1174,264 +1254,139 @@ onMounted(async () => {
   border-top: 1px solid var(--border-default, rgba(255, 255, 255, 0.08));
 }
 
-/* Tooltips */
-.field-label-row {
-  display: flex;
-  align-items: center;
-}
-
-.info-tooltip-wrapper {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  margin-left: 6px;
-}
-
-.info-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 17px;
-  height: 17px;
-  padding: 0;
-  border: 1px solid var(--border-medium, #475569);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-muted, #94a3b8);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: help;
-  transition: all 0.2s ease;
-}
-
-.info-icon-btn:hover {
-  border-color: var(--accent-brand, #6366f1);
-  background: var(--accent-brand, #6366f1);
-  color: #ffffff;
-}
-
-.tooltip-content {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  width: max-content;
-  max-width: 280px;
-  padding: 8px 12px;
-  border: 1px solid var(--border-medium, #475569);
-  border-radius: var(--radius-sm, 6px);
-  background: var(--bg-card, #0f172a);
-  color: var(--text-primary, #f8fafc);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1.45;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity 0.2s ease,
-    transform 0.2s ease;
-  z-index: 100;
-  white-space: normal;
-  text-transform: none;
-  letter-spacing: normal;
-}
-
-.info-tooltip-wrapper:hover .tooltip-content,
-.info-tooltip-wrapper:focus-within .tooltip-content {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-.tooltip-content::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border-width: 5px;
-  border-style: solid;
-  border-color: var(--border-medium, #475569) transparent transparent
-    transparent;
-}
-
-/* Form Controls */
-.form-field input:not([type='checkbox']),
-.form-field select,
-.form-field textarea {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 0.7rem 0.85rem;
-  border: 1px solid var(--border-medium, #475569);
-  border-radius: var(--radius-sm, 6px);
-  background: var(--bg-input, #1e293b) !important;
-  color: var(--text-primary, #f8fafc) !important;
-  font-family: inherit;
-  font-size: 0.875rem;
-  line-height: 1.4;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background 0.2s ease;
-}
-
-.form-field input:not([type='checkbox'])::placeholder,
-.form-field textarea::placeholder {
-  color: var(--text-muted, #94a3b8);
-  opacity: 1;
-}
-
-.form-field input:not([type='checkbox']):focus,
-.form-field select:focus,
-.form-field textarea:focus {
-  outline: none;
-  border-color: var(--accent-brand, #6366f1);
-  box-shadow: 0 0 0 3px var(--accent-brand-subtle, rgba(99, 102, 241, 0.2));
-}
-
-.form-field select {
-  cursor: pointer;
-  color-scheme: dark;
-}
-
-.form-field select option {
-  background: var(--bg-card, #111827);
-  color: var(--text-primary, #f8fafc);
-}
-
-.form-field textarea {
-  min-height: 80px;
-  resize: vertical;
-}
-
-.checkbox-field input[type='checkbox'] {
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  margin: 0;
-  cursor: pointer;
-  accent-color: var(--accent-brand, #6366f1);
-}
-
 .form-field {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 0;
-}
-
-.form-field span {
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .form-field-wide {
   grid-column: 1 / -1;
 }
 
+.form-field span {
+  color: var(--text-secondary, #94a3b8);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--border-medium, rgba(255, 255, 255, 0.18));
+  border-radius: var(--radius-md, 8px);
+  background: linear-gradient(180deg, #0e1726 0%, #0a0f1d 100%);
+  color: var(--text-primary, #f8fafc);
+  font-size: 13.5px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+  transition: all 0.2s ease;
+}
+
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+  color: #64748b;
+  opacity: 0.8;
+}
+
+.form-field select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 38px;
+}
+
+.form-field select option {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.form-field input:hover,
+.form-field select:hover,
+.form-field textarea:hover {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: linear-gradient(180deg, #111c30 0%, #0c1322 100%);
+}
+
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus {
+  outline: none;
+  border-color: var(--accent-brand, #6366f1);
+  background: linear-gradient(180deg, #111c30 0%, #0c1322 100%);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25), inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 24px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-field input[type='checkbox'] {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent-brand, #6366f1);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.checkbox-field span {
+  color: var(--text-primary, #f8fafc);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .mapping-card {
   margin-bottom: 16px;
   padding: 20px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
+  border: 1px solid var(--border-medium, rgba(255, 255, 255, 0.14));
+  border-radius: var(--radius-md, 10px);
+  background: linear-gradient(180deg, rgba(19, 29, 49, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%);
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.mapping-card:hover {
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 6px 20px -2px rgba(0, 0, 0, 0.45);
 }
 
 .mapping-card-header {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
 }
 
 .mapping-title {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--text-primary);
 }
 
 .mapping-number {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-subtle);
   color: var(--accent-brand);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
-.mapping-grid {
-  gap: 16px;
-}
-
-.checkbox-field {
-  display: flex;
-  align-items: center;
-  align-self: end;
-  gap: 8px;
-  min-height: 40px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.checkbox-field input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent-brand);
-}
-
-.btn-small {
-  padding: 7px 11px;
-  font-size: 11px;
-}
-
-.form-actions {
-  justify-content: flex-end;
-  margin-top: 28px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border-default);
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 220px;
-  padding: 32px;
-  text-align: center;
-}
-
-.empty-state.compact {
-  min-height: 140px;
-  margin-bottom: 20px;
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
-}
-
-.empty-icon {
-  margin-bottom: 14px;
-  color: var(--accent-brand);
-  font-size: 36px;
-}
-
-.empty-state h3 {
-  font-size: 18px;
-}
-
-.empty-state .btn {
-  margin-top: 20px;
-}
-
-.table-header {
-  padding: 24px 24px 20px;
-}
-
-.table-header h2 {
-  font-size: 17px;
+.mapping-card strong {
+  color: var(--text-primary);
+  font-size: 14px;
 }
 
 .template-table-wrapper {
   overflow-x: auto;
-  border-top: 1px solid var(--border-default);
 }
 
 .template-table {
@@ -1442,56 +1397,43 @@ onMounted(async () => {
 
 .template-table th,
 .template-table td {
-  padding: 16px 20px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--border-default);
-  white-space: nowrap;
+  font-size: 13px;
 }
 
 .template-table th {
   background: var(--bg-subtle);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.template-table td {
   color: var(--text-secondary);
-  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
 }
 
-.template-table tbody tr {
-  transition: background var(--transition-fast);
-}
-
-.template-table tbody tr:hover {
-  background: var(--bg-card-hover);
-}
-
-.template-table tbody tr:last-child td {
-  border-bottom: none;
+.template-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .template-name {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  max-width: 260px;
+  gap: 4px;
 }
 
 .template-name strong {
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .template-name small {
-  overflow: hidden;
   color: var(--text-muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: normal;
+  font-size: 12px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 
 .mapping-count {
@@ -1500,16 +1442,18 @@ onMounted(async () => {
   justify-content: center;
   min-width: 24px;
   height: 24px;
-  border-radius: 6px;
+  padding: 0 8px;
+  border-radius: var(--radius-full);
   background: var(--bg-subtle);
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .date-cell {
-  color: var(--text-muted) !important;
-  font-size: 11px !important;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .actions-cell {
@@ -1518,11 +1462,33 @@ onMounted(async () => {
   gap: 8px;
 }
 
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+  text-align: center;
+}
+
+.empty-state.compact {
+  padding: 28px;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.empty-icon {
+  margin-bottom: 12px;
+  font-size: 32px;
+  opacity: 0.5;
+}
+
 .loading-spinner {
   width: 24px;
   height: 24px;
-  margin-bottom: 14px;
-  border: 3px solid var(--border-default);
+  margin-bottom: 12px;
+  border: 2px solid var(--border-default);
   border-top-color: var(--accent-brand);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -1534,61 +1500,30 @@ onMounted(async () => {
   }
 }
 
-@media (max-width: 768px) {
-  .template-manager {
-    padding-top: 20px;
-  }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+}
 
-  .page-header,
-  .form-header,
-  .mapping-heading,
-  .table-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+.badge-info {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
 
-  .form-grid,
-  .mapping-grid,
-  .mode-tabs {
-    grid-template-columns: 1fr;
-  }
+.badge-invoice {
+  background: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
 
-  .form-field-wide {
-    grid-column: auto;
-  }
-
-  .template-form {
-    padding: 20px;
-  }
-
-  .form-actions {
-    align-items: stretch;
-    flex-direction: column-reverse;
-  }
-
-  .form-actions .btn {
-    width: 100%;
-  }
-
-  .mapping-heading .btn {
-    width: 100%;
-  }
-
-  .tooltip-content {
-    left: 0;
-    transform: translateY(4px);
-    max-width: 240px;
-  }
-
-  .info-tooltip-wrapper:hover .tooltip-content,
-  .info-tooltip-wrapper:focus-within .tooltip-content {
-    transform: translateY(0);
-  }
-
-  .tooltip-content::after {
-    left: 12px;
-    transform: none;
-  }
+.badge-dataset {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.25);
 }
 </style>
-e>

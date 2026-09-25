@@ -35,6 +35,8 @@ RULE_NEGATIVE_AMOUNT = "NEGATIVE_AMOUNT"
 RULE_ZERO_AMOUNT = "ZERO_AMOUNT"
 RULE_DUPLICATE_INVOICE = "DUPLICATE_INVOICE"
 RULE_EXTRACTION_FAILURE = "EXTRACTION_FAILURE"
+RULE_LINE_ITEM_ERROR = "LINE_ITEM_ERROR"
+RULE_LINE_ITEM_MATH_MISMATCH = "LINE_ITEM_MATH_MISMATCH"
 
 
 # ── Configuration Model ───────────────────────────────────────────────────────
@@ -100,6 +102,18 @@ class RowValidationReport:
 
 
 @dataclass
+class LineItemValidationReport:
+    """
+    Validation outcome for a single line item in a composite invoice extraction.
+    """
+
+    source_row_number: int
+    is_valid: bool
+    issues: list[ValidationIssue] = field(default_factory=list)
+    normalized_data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class ValidationReport:
     """
     Aggregated outcome of validating an extraction result.
@@ -113,6 +127,9 @@ class ValidationReport:
     normalized_data: dict[str, Any] = field(default_factory=dict)
     is_multi_record: bool = False
     row_reports: list[RowValidationReport] = field(default_factory=list)
+    has_line_items: bool = False
+    line_item_reports: list[LineItemValidationReport] = field(default_factory=list)
+
 
 
 # ── Validation Engine ─────────────────────────────────────────────────────────
@@ -354,7 +371,16 @@ def validate_extraction(
                     )
                 )
 
-    # 4. Calculate summary counts
+    # 4. Validate Line Items if present
+    line_item_reports: list[LineItemValidationReport] = []
+    if extraction_result.has_line_items:
+        line_item_reports, li_issues = _validate_line_items(
+            line_items=extraction_result.line_items,
+            _field_to_target=_field_to_target,
+        )
+        issues.extend(li_issues)
+
+    # 5. Calculate summary counts
     error_cnt = sum(1 for i in issues if i.severity == "error")
     warning_cnt = sum(1 for i in issues if i.severity == "warning")
     info_cnt = sum(1 for i in issues if i.severity == "info")
@@ -366,7 +392,94 @@ def validate_extraction(
         warning_count=warning_cnt,
         info_count=info_cnt,
         normalized_data=normalized_data,
+        has_line_items=extraction_result.has_line_items,
+        line_item_reports=line_item_reports,
     )
+
+
+def _validate_line_items(
+    line_items: list[Any],
+    _field_to_target: dict[str, str],
+) -> tuple[list[LineItemValidationReport], list[ValidationIssue]]:
+    line_item_reports: list[LineItemValidationReport] = []
+    all_li_issues: list[ValidationIssue] = []
+
+    for item in line_items:
+        row_issues: list[ValidationIssue] = []
+        row_norm_data: dict[str, Any] = {}
+
+        for f in item.fields:
+            target_key = _field_to_target.get(f.field_name, f.field_name)
+            if f.status == "error":
+                if f.is_empty_cell and f.is_required:
+                    iss = ValidationIssue(
+                        rule_id=RULE_REQ_FIELD_MISSING,
+                        field_name=f.field_name,
+                        severity="error",
+                        message=f.error_message or f"Required line-item field '{f.field_name}' in row {item.row_number} is empty.",
+                        cell_ref=f.source_cell_ref,
+                        worksheet=f.source_worksheet,
+                        actual_value=f.raw_value,
+                    )
+                else:
+                    iss = ValidationIssue(
+                        rule_id=RULE_INVALID_DATA_TYPE,
+                        field_name=f.field_name,
+                        severity="error",
+                        message=f.error_message or f"Line-item field '{f.field_name}' in row {item.row_number} has invalid format.",
+                        cell_ref=f.source_cell_ref,
+                        worksheet=f.source_worksheet,
+                        actual_value=f.raw_value,
+                    )
+                row_issues.append(iss)
+                all_li_issues.append(iss)
+            elif f.status in ("success", "empty_optional"):
+                if f.normalized_value is not None:
+                    row_norm_data[target_key] = f.normalized_value
+
+        # Check line item math consistency (Quantity * Unit Price ~ Amount) if present
+        qty = row_norm_data.get("quantity") or row_norm_data.get("qty")
+        unit_p = row_norm_data.get("unit_price") or row_norm_data.get("price")
+        amt = row_norm_data.get("amount") or row_norm_data.get("line_total")
+        if (
+            isinstance(qty, (int, float, Decimal))
+            and isinstance(unit_p, (int, float, Decimal))
+            and isinstance(amt, (int, float, Decimal))
+        ):
+            calc_amt = Decimal(str(qty)) * Decimal(str(unit_p))
+            actual_amt = Decimal(str(amt))
+            # If difference > 0.05 (allowing minor rounding differences)
+            if abs(calc_amt - actual_amt) > Decimal("0.05"):
+                tax_amt = row_norm_data.get("tax_amount") or row_norm_data.get("tax")
+                tax_d = Decimal(str(tax_amt)) if isinstance(tax_amt, (int, float, Decimal)) else Decimal("0")
+                if abs((calc_amt + tax_d) - actual_amt) > Decimal("0.05"):
+                    iss = ValidationIssue(
+                        rule_id=RULE_LINE_ITEM_MATH_MISMATCH,
+                        field_name="amount",
+                        severity="warning",
+                        message=(
+                            f"Line item row {item.row_number}: Quantity ({qty}) * Unit Price ({unit_p}) = {calc_amt:.2f}, "
+                            f"which differs from stated Amount ({actual_amt:.2f})."
+                        ),
+                        cell_ref=next((f.source_cell_ref for f in item.fields if f.field_name == "amount" or _field_to_target.get(f.field_name) == "amount"), None),
+                        worksheet=item.fields[0].source_worksheet if item.fields else None,
+                        actual_value=actual_amt,
+                    )
+                    row_issues.append(iss)
+                    all_li_issues.append(iss)
+
+        has_row_errors = any(i.severity == "error" for i in row_issues)
+        line_item_reports.append(
+            LineItemValidationReport(
+                source_row_number=item.row_number,
+                is_valid=(not has_row_errors),
+                issues=row_issues,
+                normalized_data=row_norm_data,
+            )
+        )
+
+    return line_item_reports, all_li_issues
+
 
 
 def _validate_multi_record_extraction(

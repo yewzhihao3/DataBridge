@@ -29,3 +29,28 @@ CANONICAL_INVOICE_FIELDS_LIST: list[str] = [
     "total_amount",
     "currency",
 ]
+
+# ── Canonical InvoiceLineItem field names ────────────────────────────────────
+#
+# These are the exact column names on the InvoiceLineItem ORM model.
+# A line-item template field mapping whose target_field matches one of these
+# values is routed directly into the corresponding database column; any other
+# target_field is stored in the line item custom_fields JSON column.
+CANONICAL_LINE_ITEM_FIELDS: frozenset[str] = frozenset([
+    "description",
+    "quantity",
+    "unit_price",
+    "tax_rate",
+    "tax_amount",
+    "amount",
+])
+
+CANONICAL_LINE_ITEM_FIELDS_LIST: list[str] = [
+    "description",
+    "quantity",
+    "unit_price",
+    "tax_rate",
+    "tax_amount",
+    "amount",
+]
+

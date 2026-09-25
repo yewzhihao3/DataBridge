@@ -9,11 +9,15 @@ withDefaults(
     targetWorksheet: string
     isMultiRecord?: boolean
     records?: RowExtractionPreview[]
+    hasLineItems?: boolean
+    lineItems?: RowExtractionPreview[]
   }>(),
   {
     fields: () => [],
     isMultiRecord: false,
     records: () => [],
+    hasLineItems: false,
+    lineItems: () => [],
   },
 )
 
@@ -45,15 +49,15 @@ function formatNormalizedValue(val: any, field?: ExtractedField): string {
       <span class="count-tag">{{ records.length }} Invoice Record(s) Extracted</span>
     </div>
 
-    <!-- Single-Cell Header -->
+    <!-- Single Invoice Header -->
     <div v-else class="preview-header">
       <div>
-        <h3 class="preview-title">Extracted Field Values & Cell Provenance</h3>
+        <h3 class="preview-title">Extracted Invoice Header Fields</h3>
         <p class="preview-subtitle">
           Target worksheet: <span class="mono text-primary">{{ targetWorksheet }}</span>
         </p>
       </div>
-      <span class="count-tag">{{ fields.length }} Fields Mapped</span>
+      <span class="count-tag">{{ fields.length }} Header Fields Mapped</span>
     </div>
 
     <!-- Multi-Record Row Grid Table -->
@@ -114,7 +118,7 @@ function formatNormalizedValue(val: any, field?: ExtractedField): string {
       </table>
     </div>
 
-    <!-- Single-Cell Extraction Grid Table -->
+    <!-- Single-Invoice Header Grid Table -->
     <div v-else class="table-container">
       <table class="preview-table">
         <thead>
@@ -123,7 +127,7 @@ function formatNormalizedValue(val: any, field?: ExtractedField): string {
             <th>Cell Provenance</th>
             <th>Data Type</th>
             <th>Raw Excel Value</th>
-            <th>Normalized Typed Value</th>
+            <th>Normalized Value</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -138,15 +142,17 @@ function formatNormalizedValue(val: any, field?: ExtractedField): string {
           >
             <!-- Field Name & Required Flag -->
             <td class="field-name-cell">
-              <span class="field-label">{{ field.field_name }}</span>
-              <span
-                v-if="field.is_required"
-                class="required-flag"
-                title="Required Field"
-              >
-                Required
-              </span>
-              <span v-else class="optional-flag">Optional</span>
+              <div class="field-name-inner">
+                <span class="field-label">{{ field.field_name }}</span>
+                <span
+                  v-if="field.is_required"
+                  class="required-flag"
+                  title="Required Field"
+                >
+                  Required
+                </span>
+                <span v-else class="optional-flag">Optional</span>
+              </div>
             </td>
 
             <!-- Cell Provenance Coordinate -->
@@ -200,6 +206,80 @@ function formatNormalizedValue(val: any, field?: ExtractedField): string {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Line Items Table (When Invoice Template has Line Items) -->
+    <div v-if="!isMultiRecord && hasLineItems" class="line-items-section" style="margin-top: 2rem;">
+      <div class="preview-header">
+        <div>
+          <h3 class="preview-title">Extracted Invoice Line Items</h3>
+          <p class="preview-subtitle">
+            Repeating table breakdown (<span class="mono text-primary">{{ lineItems.length }} Line Item(s)</span> extracted)
+          </p>
+        </div>
+        <span class="count-tag">{{ lineItems.length }} Line Items</span>
+      </div>
+
+      <div class="table-container">
+        <table class="preview-table line-items-table">
+          <colgroup>
+            <col style="width: 100px;" />
+            <col style="width: 200px;" />
+            <col />
+            <col style="width: 100px;" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Row #</th>
+              <th>Cell Coordinates</th>
+              <th>Extracted Line Item Values</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="li in lineItems"
+              :key="li.source_row_number"
+              :class="{
+                'row-error': li.has_errors,
+                'row-warning': li.warning_count > 0 && !li.has_errors,
+              }"
+            >
+              <td>
+                <div class="li-row-label">
+                  <Layers :size="13" class="text-accent" />
+                  <span class="mono">Row {{ li.source_row_number }}</span>
+                </div>
+              </td>
+
+              <td>
+                <div class="li-coords-list">
+                  <div v-for="f in li.fields" :key="f.field_name" class="coord-badge mono" style="font-size: 0.73rem;">
+                    <FileSpreadsheet :size="11" class="text-accent" />
+                    <span>{{ f.field_name }}: {{ f.source_cell_ref }}</span>
+                  </div>
+                </div>
+              </td>
+
+              <td>
+                <div class="record-data-grid">
+                  <div v-for="(val, k) in li.normalized_data" :key="k" class="data-chip">
+                    <span class="data-key">{{ k }}:</span>
+                    <span class="data-val">{{ formatNormalizedValue(val) }}</span>
+                  </div>
+                </div>
+                <div v-for="err in li.errors" :key="err.message" class="field-error-text" style="margin-top: 0.35rem;">
+                  {{ err.message }}
+                </div>
+              </td>
+
+              <td style="text-align: center;">
+                <StatusBadge :status="li.has_errors ? 'error' : (li.warning_count > 0 ? 'warning' : 'success')" />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </template>
@@ -283,6 +363,10 @@ function formatNormalizedValue(val: any, field?: ExtractedField): string {
 }
 
 .field-name-cell {
+  white-space: nowrap;
+}
+
+.field-name-inner {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -311,9 +395,7 @@ function formatNormalizedValue(val: any, field?: ExtractedField): string {
 }
 
 .provenance-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  vertical-align: top;
 }
 
 .coord-badge {
@@ -360,9 +442,7 @@ function formatNormalizedValue(val: any, field?: ExtractedField): string {
 }
 
 .norm-val-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+  vertical-align: top;
 }
 
 .norm-value {
@@ -389,6 +469,25 @@ function formatNormalizedValue(val: any, field?: ExtractedField): string {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+/* ── Line Items Table ──────────────────────────────────────────── */
+
+.line-items-table {
+  table-layout: fixed;
+}
+
+.li-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.li-coords-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
 .data-chip {

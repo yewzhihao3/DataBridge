@@ -47,6 +47,7 @@ class Template(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True)
+    template_type = Column(String(20), nullable=False, default="invoice")  # "invoice" | "dataset"
     file_type = Column(String(20), nullable=False, default="xlsx")
     worksheet = Column(String(100), nullable=True)  # None means default/first sheet
     header_row = Column(Integer, nullable=True)
@@ -66,7 +67,7 @@ class Template(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Template id={self.id} name='{self.name}'>"
+        return f"<Template id={self.id} name='{self.name}' type='{self.template_type}'>"
 
 
 class TemplateFieldMapping(Base):
@@ -80,11 +81,12 @@ class TemplateFieldMapping(Base):
     template_id = Column(
         Integer, ForeignKey("templates.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    mapping_group = Column(String(20), nullable=False, default="header")  # "header" | "line_item"
     field_name = Column(String(100), nullable=False)
     target_field = Column(String(100), nullable=True)  # Canonical or custom backend field to map to
     mapping_type = Column(String(20), nullable=False, default="cell")  # "cell" | "column"
     cell_ref = Column(String(20), nullable=True)  # e.g. "B2"
-    column_ref = Column(String(20), nullable=True)  # e.g. "B" (for future column mappings)
+    column_ref = Column(String(20), nullable=True)  # e.g. "B" (for column / line-item mappings)
     is_required = Column(Boolean, default=False, nullable=False)
     data_type = Column(String(20), default="text", nullable=False)  # text | date | decimal | integer
 
@@ -92,8 +94,9 @@ class TemplateFieldMapping(Base):
     template = relationship("Template", back_populates="field_mappings")
 
     __table_args__ = (
-        UniqueConstraint("template_id", "field_name", name="uq_template_field_name"),
+        UniqueConstraint("template_id", "mapping_group", "field_name", name="uq_template_group_field_name"),
     )
 
     def __repr__(self) -> str:
-        return f"<TemplateFieldMapping id={self.id} field='{self.field_name}' cell='{self.cell_ref}'>"
+        return f"<TemplateFieldMapping id={self.id} group='{self.mapping_group}' field='{self.field_name}' cell='{self.cell_ref}' col='{self.column_ref}'>"
+

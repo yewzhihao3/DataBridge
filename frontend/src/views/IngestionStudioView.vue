@@ -163,6 +163,16 @@ const workflowSteps = [
           </strong>
         </div>
 
+        <div v-if="previewResult.has_line_items" class="summary-card glass-card">
+          <span class="summary-label">
+            Line Items
+          </span>
+
+          <strong>
+            {{ previewResult.line_items?.length || 0 }}
+          </strong>
+        </div>
+
         <div class="summary-card glass-card">
           <span class="summary-label">
             Errors
@@ -206,6 +216,8 @@ const workflowSteps = [
         :target-worksheet="previewResult.target_worksheet"
         :is-multi-record="previewResult.is_multi_record"
         :records="previewResult.records"
+        :has-line-items="previewResult.has_line_items"
+        :line-items="previewResult.line_items"
       />
 
       <!-- Validation Issues -->

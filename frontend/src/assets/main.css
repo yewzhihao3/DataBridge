@@ -6,10 +6,12 @@
   --bg-card: #111827;
   --bg-card-hover: #172033;
   --bg-subtle: #1e293b;
-  --bg-input: #0f172a;
+  --bg-surface: #131d31;
+  --bg-input: #0b1120;
   
   --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-medium: rgba(255, 255, 255, 0.16);
+  --border-default: rgba(255, 255, 255, 0.15);
+  --border-medium: rgba(255, 255, 255, 0.24);
   --border-focus: #6366f1;
   
   --text-primary: #f8fafc;

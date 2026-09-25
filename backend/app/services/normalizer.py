@@ -175,6 +175,10 @@ def normalize_decimal(val: Any) -> Decimal | None:
         cleaned = _CURRENCY_PREFIX_REGEX.sub("", cleaned).strip()
         cleaned = _CURRENCY_SUFFIX_REGEX.sub("", cleaned).strip()
 
+        # Strip trailing percentage sign (e.g. "8%", "8.5%")
+        if cleaned.endswith("%"):
+            cleaned = cleaned[:-1].strip()
+
         # Check again in case minus/parens were after currency symbol (e.g. "-RM 1,250.50" or "RM -1,250.50")
         if cleaned.startswith("-"):
             is_negative = True
@@ -185,6 +189,7 @@ def normalize_decimal(val: Any) -> Decimal | None:
         elif cleaned.startswith("(") and cleaned.endswith(")"):
             is_negative = True
             cleaned = cleaned[1:-1].strip()
+
 
         if not cleaned:
             raise NormalizationError(f"Cannot convert '{val}' to decimal: empty amount.")

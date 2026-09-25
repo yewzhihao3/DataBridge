@@ -15,6 +15,7 @@ Features:
 from __future__ import annotations
 
 import json
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -22,9 +23,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
-from app.constants import CANONICAL_INVOICE_FIELDS
+from app.constants import CANONICAL_INVOICE_FIELDS, CANONICAL_LINE_ITEM_FIELDS
 from app.database import get_db
-from app.models.invoice import ImportBatch, InvoiceRecord, ValidationErrorRecord
+from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord, ValidationErrorRecord
 from app.models.source_file import SourceFile
 from app.models.template import Template
 from app.schemas.extraction import (
@@ -32,6 +33,7 @@ from app.schemas.extraction import (
     ExtractionErrorSchema,
     ExtractionPreviewResponse,
     ExtractionRequest,
+    LineItemExtractionPreviewSchema,
     RowExtractionPreviewSchema,
     ValidationIssueSchema,
     ValidationReportSchema,
@@ -40,10 +42,12 @@ from app.schemas.import_batch import (
     ImportBatchDetailResponse,
     ImportBatchListItem,
     ImportConfirmRequest,
+    InvoiceLineItemRead,
     InvoiceRecordRead,
     InvoiceRecordUpdate,
     ValidationErrorRecordRead,
 )
+
 from app.services.extractor import extract_from_file
 from app.services.validator import ValidationConfig, validate_extraction
 from app.services.workbook_inspector import (
@@ -197,13 +201,68 @@ def extract_preview(
                     )
                 )
 
+        preview_line_items: list[LineItemExtractionPreviewSchema] = []
+        if extraction_result.has_line_items:
+            li_results_by_num = {r.row_number: r for r in extraction_result.line_items}
+            for lr in validation_report.line_item_reports:
+                li_res = li_results_by_num.get(lr.source_row_number)
+                l_fields = li_res.fields if li_res else []
+                l_errors = li_res.errors if li_res else []
+                l_warnings = li_res.warnings if li_res else []
+                l_has_errors = (not lr.is_valid) or (len(l_errors) > 0)
+
+                preview_line_items.append(
+                    LineItemExtractionPreviewSchema(
+                        source_row_number=lr.source_row_number,
+                        fields=[
+                            ExtractedFieldSchema(
+                                field_name=f.field_name,
+                                mapping_type=f.mapping_type,
+                                source_worksheet=f.source_worksheet,
+                                source_cell_ref=f.source_cell_ref,
+                                raw_value=f.raw_value,
+                                data_type=f.data_type,
+                                is_required=f.is_required,
+                                is_empty_cell=f.is_empty_cell,
+                                is_formula=f.is_formula,
+                                formula_expression=f.formula_expression,
+                                normalized_value=f.normalized_value,
+                                status=f.status,
+                                error_message=f.error_message,
+                                warning_message=f.warning_message,
+                            )
+                            for f in l_fields
+                        ],
+                        has_errors=l_has_errors,
+                        error_count=len(l_errors) + sum(1 for i in lr.issues if i.severity == "error"),
+                        warning_count=len(l_warnings) + sum(1 for i in lr.issues if i.severity == "warning"),
+                        errors=[
+                            ExtractionErrorSchema(
+                                field_name=e.field_name,
+                                message=e.message,
+                                worksheet=e.worksheet,
+                                cell_ref=e.cell_ref,
+                                error_type=e.error_type,
+                            )
+                            for e in l_errors
+                        ],
+                        warnings=l_warnings,
+                        normalized_data=lr.normalized_data,
+                    )
+                )
+
+        template_type_val = getattr(template, "template_type", "invoice") or "invoice"
+
         return ExtractionPreviewResponse(
             file_id=source_file.id,
             template_id=template.id,
             template_name=template.name,
+            template_type=template_type_val,
             target_worksheet=extraction_result.target_worksheet,
             is_multi_record=extraction_result.is_multi_record,
+            has_line_items=extraction_result.has_line_items,
             record_count=len(preview_records) if extraction_result.is_multi_record else 1,
+            line_item_count=len(preview_line_items) if extraction_result.has_line_items else 0,
             fields=[
                 ExtractedFieldSchema(
                     field_name=f.field_name,
@@ -224,6 +283,7 @@ def extract_preview(
                 for f in extraction_result.fields
             ] if not extraction_result.is_multi_record else [],
             records=preview_records,
+            line_items=preview_line_items,
             has_errors=extraction_result.has_errors or (not validation_report.is_valid_for_import),
             error_count=extraction_result.error_count + validation_report.error_count,
             warning_count=extraction_result.warning_count + validation_report.warning_count,
@@ -258,6 +318,7 @@ def extract_preview(
                 normalized_data=validation_report.normalized_data,
             ),
         )
+
 
     except (InvalidFileFormatError, CorruptWorkbookError, FileSizeExceededError) as exc:
         raise HTTPException(
@@ -362,6 +423,11 @@ def confirm_import(
         for c in CANONICAL_INVOICE_FIELDS
     } | {"company", "invoice_num", "date", "amount"}
 
+    _norm_line_canonical_set = {
+        str(c).strip().lower().replace(" ", "_").replace("-", "_")
+        for c in CANONICAL_LINE_ITEM_FIELDS
+    } | {"qty", "price", "rate", "item", "product"}
+
     def _resolve_row_canonical(norm_data: dict[str, Any], primary: str, *aliases: str) -> Any:
         _norm_lookup = {
             str(_k).strip().lower().replace(" ", "_").replace("-", "_"): _v
@@ -374,6 +440,41 @@ def confirm_import(
             if key in _norm_lookup:
                 return _norm_lookup[key]
         return None
+
+    def _serialize_custom_val(val: Any) -> Any:
+        if hasattr(val, "isoformat"):
+            return val.isoformat()
+        if isinstance(val, Decimal):
+            return str(val)
+        return val
+
+    def _coerce_date(val: Any) -> date | None:
+        if val is None:
+            return None
+        if isinstance(val, date) and not isinstance(val, datetime):
+            return val
+        if isinstance(val, datetime):
+            return val.date()
+        if isinstance(val, str):
+            try:
+                return normalize_date(val)
+            except Exception:
+                try:
+                    clean_str = val.strip().replace("T", " ").split(" ")[0]
+                    return date.fromisoformat(clean_str)
+                except Exception:
+                    return None
+        return None
+
+    def _coerce_decimal(val: Any) -> Decimal | None:
+        if val is None:
+            return None
+        if isinstance(val, Decimal):
+            return val
+        try:
+            return normalize_decimal(val)
+        except Exception:
+            return None
 
     if validation_report.is_multi_record:
         rec_count = len(validation_report.row_reports)
@@ -391,15 +492,15 @@ def confirm_import(
             norm_data = rr.normalized_data
             comp_name = _resolve_row_canonical(norm_data, "company_name", "company") or "Unknown Company"
             inv_num = _resolve_row_canonical(norm_data, "invoice_number", "invoice_num") or "Unknown Invoice"
-            inv_date = _resolve_row_canonical(norm_data, "invoice_date", "date")
-            tot_amt = _resolve_row_canonical(norm_data, "total_amount", "amount")
+            inv_date = _coerce_date(_resolve_row_canonical(norm_data, "invoice_date", "date"))
+            tot_amt = _coerce_decimal(_resolve_row_canonical(norm_data, "total_amount", "amount"))
             curr = _resolve_row_canonical(norm_data, "currency")
 
             custom_fields: dict[str, Any] = {}
             for key, val in norm_data.items():
                 norm_k = str(key).strip().lower().replace(" ", "_").replace("-", "_")
                 if key not in CANONICAL_INVOICE_FIELDS and norm_k not in _norm_canonical_set:
-                    custom_fields[key] = val if not hasattr(val, "isoformat") else val.isoformat()
+                    custom_fields[key] = _serialize_custom_val(val)
 
             row_res = rows_by_num.get(rr.source_row_number)
             raw_dict = {f.field_name: f.raw_value for f in row_res.fields} if row_res else {}
@@ -410,7 +511,7 @@ def confirm_import(
                 invoice_number=str(inv_num),
                 invoice_date=inv_date,
                 total_amount=tot_amt,
-                currency=curr,
+                currency=str(curr) if curr is not None else None,
                 source_worksheet=extraction_result.target_worksheet,
                 source_row_number=rr.source_row_number,
                 raw_data=raw_json,
@@ -421,15 +522,15 @@ def confirm_import(
         norm_data = validation_report.normalized_data
         comp_name = _resolve_row_canonical(norm_data, "company_name", "company") or "Unknown Company"
         inv_num = _resolve_row_canonical(norm_data, "invoice_number", "invoice_num") or "Unknown Invoice"
-        inv_date = _resolve_row_canonical(norm_data, "invoice_date", "date")
-        tot_amt = _resolve_row_canonical(norm_data, "total_amount", "amount")
+        inv_date = _coerce_date(_resolve_row_canonical(norm_data, "invoice_date", "date"))
+        tot_amt = _coerce_decimal(_resolve_row_canonical(norm_data, "total_amount", "amount"))
         curr = _resolve_row_canonical(norm_data, "currency")
 
         custom_fields = {}
         for key, val in norm_data.items():
             norm_k = str(key).strip().lower().replace(" ", "_").replace("-", "_")
             if key not in CANONICAL_INVOICE_FIELDS and norm_k not in _norm_canonical_set:
-                custom_fields[key] = val if not hasattr(val, "isoformat") else val.isoformat()
+                custom_fields[key] = _serialize_custom_val(val)
 
         raw_dict = {f.field_name: f.raw_value for f in extraction_result.fields}
         raw_json = json.dumps(raw_dict, default=_json_serial)
@@ -447,13 +548,50 @@ def confirm_import(
             invoice_number=str(inv_num),
             invoice_date=inv_date,
             total_amount=tot_amt,
-            currency=curr,
+            currency=str(curr) if curr is not None else None,
             source_worksheet=extraction_result.target_worksheet,
             source_row_number=None,
             raw_data=raw_json,
             custom_fields=custom_fields if custom_fields else None,
         )
+
+        # Attach child line items if present
+        if validation_report.has_line_items and validation_report.line_item_reports:
+            li_rows_by_num = {r.row_number: r for r in extraction_result.line_items}
+            for lr in validation_report.line_item_reports:
+                li_norm = lr.normalized_data
+                li_desc = _resolve_row_canonical(li_norm, "description", "item", "product")
+                li_qty = _coerce_decimal(_resolve_row_canonical(li_norm, "quantity", "qty"))
+                li_price = _coerce_decimal(_resolve_row_canonical(li_norm, "unit_price", "price", "rate"))
+                li_tax_rate = _coerce_decimal(_resolve_row_canonical(li_norm, "tax_rate"))
+                li_tax_amt = _coerce_decimal(_resolve_row_canonical(li_norm, "tax_amount", "tax"))
+                li_amt = _coerce_decimal(_resolve_row_canonical(li_norm, "amount", "line_total"))
+
+                li_custom: dict[str, Any] = {}
+                for key, val in li_norm.items():
+                    norm_k = str(key).strip().lower().replace(" ", "_").replace("-", "_")
+                    if key not in CANONICAL_LINE_ITEM_FIELDS and norm_k not in _norm_line_canonical_set:
+                        li_custom[key] = _serialize_custom_val(val)
+
+                li_res = li_rows_by_num.get(lr.source_row_number)
+                li_raw_dict = {f.field_name: f.raw_value for f in li_res.fields} if li_res else {}
+                li_raw_json = json.dumps(li_raw_dict, default=_json_serial)
+
+                line_item = InvoiceLineItem(
+                    source_row_number=lr.source_row_number,
+                    description=str(li_desc) if li_desc is not None else None,
+                    quantity=li_qty,
+                    unit_price=li_price,
+                    tax_rate=li_tax_rate,
+                    tax_amount=li_tax_amt,
+                    amount=li_amt,
+                    custom_fields=li_custom if li_custom else None,
+                    raw_data=li_raw_json,
+                )
+                invoice_record.line_items.append(line_item)
+
         batch.invoice_records.append(invoice_record)
+
 
     # Persist historical warning diagnostics
     for issue in validation_report.issues:
@@ -577,7 +715,7 @@ def get_import_batch(
         .options(
             joinedload(ImportBatch.source_file),
             joinedload(ImportBatch.template),
-            joinedload(ImportBatch.invoice_records),
+            joinedload(ImportBatch.invoice_records).joinedload(InvoiceRecord.line_items),
             joinedload(ImportBatch.validation_issues),
         )
         .filter(ImportBatch.id == batch_id, ImportBatch.is_deleted == False)  # noqa: E712

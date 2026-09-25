@@ -35,6 +35,22 @@ class ValidationErrorRecordRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class InvoiceLineItemRead(BaseModel):
+    id: int
+    invoice_id: int
+    source_row_number: int
+    description: str | None = None
+    quantity: Decimal | None = None
+    unit_price: Decimal | None = None
+    tax_rate: Decimal | None = None
+    tax_amount: Decimal | None = None
+    amount: Decimal | None = None
+    custom_fields: dict[str, Any] | None = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class InvoiceRecordRead(BaseModel):
     id: int
     batch_id: int
@@ -47,8 +63,10 @@ class InvoiceRecordRead(BaseModel):
     source_row_number: int | None = None
     custom_fields: dict[str, Any] | None = None
     created_at: datetime
+    line_items: list[InvoiceLineItemRead] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
+
 
 
 class InvoiceRecordUpdate(BaseModel):

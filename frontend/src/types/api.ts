@@ -41,6 +41,7 @@ export interface TemplateFieldMapping {
   id?: number
   field_name: string
   target_field?: string | null  // canonical or custom backend field to map to
+  mapping_group?: 'header' | 'line_item'
   mapping_type: 'cell' | 'column' | 'fixed'
   cell_ref?: string
   column_ref?: string
@@ -53,6 +54,7 @@ export interface TemplateSummary {
   id: number
   name: string
   description?: string | null
+  template_type?: 'invoice' | 'dataset'
   file_type: string
   worksheet: string
   header_row?: number | null
@@ -66,6 +68,7 @@ export interface TemplateDetail {
   id: number
   name: string
   description?: string | null
+  template_type?: 'invoice' | 'dataset'
   file_type: string
   worksheet: string
   header_row?: number | null
@@ -78,6 +81,7 @@ export interface TemplateDetail {
 export interface TemplateCreate {
   name: string
   description?: string
+  template_type?: 'invoice' | 'dataset'
   file_type: string
   worksheet: string
   header_row?: number | null
@@ -146,11 +150,15 @@ export interface ExtractionPreviewResponse {
   file_id: number
   template_id: number
   template_name: string
+  template_type?: 'invoice' | 'dataset'
   target_worksheet: string
   is_multi_record?: boolean
+  has_line_items?: boolean
   record_count?: number
+  line_item_count?: number
   fields: ExtractedField[]
   records?: RowExtractionPreview[]
+  line_items?: RowExtractionPreview[]
   has_errors: boolean
   error_count: number
   warning_count: number
@@ -167,6 +175,20 @@ export interface ImportConfirmRequest {
   acknowledge_warnings?: boolean
 }
 
+export interface InvoiceLineItemRead {
+  id: number
+  invoice_record_id: number
+  source_row_number?: number | null
+  description?: string | null
+  quantity?: number | null
+  unit_price?: number | null
+  tax_rate?: number | null
+  tax_amount?: number | null
+  amount?: number | null
+  custom_fields?: Record<string, any> | null
+  created_at: string
+}
+
 export interface InvoiceRecordRead {
   id: number
   batch_id: number
@@ -179,6 +201,7 @@ export interface InvoiceRecordRead {
   source_row_number?: number | null
   custom_fields?: Record<string, any> | null
   created_at: string
+  line_items?: InvoiceLineItemRead[]
 }
 
 /** Payload for PATCH /api/v1/imports/{batch_id}/records/{record_id} */

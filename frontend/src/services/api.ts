@@ -313,4 +313,9 @@ export const api = {
   async listCanonicalFields(): Promise<string[]> {
     return request<string[]>('/templates/canonical-fields')
   },
+
+  /** Returns the list of canonical target field names supported by InvoiceLineItem. */
+  async listCanonicalLineItemFields(): Promise<string[]> {
+    return request<string[]>('/templates/canonical-line-item-fields')
+  },
 }

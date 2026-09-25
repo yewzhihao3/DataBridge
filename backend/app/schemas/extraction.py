@@ -78,15 +78,32 @@ class RowExtractionPreviewSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class LineItemExtractionPreviewSchema(BaseModel):
+    source_row_number: int
+    fields: list[ExtractedFieldSchema] = Field(default_factory=list)
+    has_errors: bool = False
+    error_count: int = 0
+    warning_count: int = 0
+    errors: list[ExtractionErrorSchema] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    normalized_data: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ExtractionPreviewResponse(BaseModel):
     file_id: int
     template_id: int
     template_name: str
+    template_type: str = "invoice"
     target_worksheet: str
     is_multi_record: bool = False
+    has_line_items: bool = False
     record_count: int = 1
+    line_item_count: int = 0
     fields: list[ExtractedFieldSchema] = Field(default_factory=list)
     records: list[RowExtractionPreviewSchema] = Field(default_factory=list)
+    line_items: list[LineItemExtractionPreviewSchema] = Field(default_factory=list)
     has_errors: bool
     error_count: int
     warning_count: int
@@ -95,3 +112,4 @@ class ExtractionPreviewResponse(BaseModel):
     validation_report: ValidationReportSchema
 
     model_config = ConfigDict(from_attributes=True)
+

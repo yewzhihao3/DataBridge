@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from app.constants import CANONICAL_INVOICE_FIELDS_LIST
+from app.constants import CANONICAL_INVOICE_FIELDS_LIST, CANONICAL_LINE_ITEM_FIELDS_LIST
 from app.database import get_db
 from app.models.template import Template, TemplateFieldMapping
 from app.schemas.template import (
@@ -34,17 +34,31 @@ router = APIRouter(prefix="/api/v1/templates", tags=["Templates"])
 @router.get(
     "/canonical-fields",
     response_model=list[str],
-    summary="List all supported canonical invoice field names",
+    summary="List all supported canonical invoice header field names",
 )
 def list_canonical_fields() -> list[str]:
     """
     Returns the list of canonical target field names supported by InvoiceRecord.
-    Use these as `target_field` values in template field mappings to route
+    Use these as `target_field` values in header template field mappings to route
     extracted data directly into the corresponding database column.
     Any mapping whose target_field is NOT in this list will be stored as a
     custom field in the invoice record's `custom_fields` JSON column.
     """
     return CANONICAL_INVOICE_FIELDS_LIST
+
+
+@router.get(
+    "/canonical-line-item-fields",
+    response_model=list[str],
+    summary="List all supported canonical line item field names",
+)
+def list_canonical_line_item_fields() -> list[str]:
+    """
+    Returns the list of canonical target field names supported by InvoiceLineItem.
+    Use these as `target_field` values in line-item template field mappings to route
+    extracted data directly into the corresponding database column.
+    """
+    return CANONICAL_LINE_ITEM_FIELDS_LIST
 
 
 @router.post(
@@ -73,6 +87,7 @@ def create_template(
     template = Template(
         name=payload.name,
         description=payload.description,
+        template_type=payload.template_type,
         file_type=payload.file_type,
         worksheet=payload.worksheet,
         header_row=payload.header_row,
@@ -83,6 +98,7 @@ def create_template(
     for mapping in payload.field_mappings:
         template.field_mappings.append(
             TemplateFieldMapping(
+                mapping_group=mapping.mapping_group,
                 field_name=mapping.field_name,
                 target_field=mapping.target_field,
                 mapping_type=mapping.mapping_type,
@@ -129,6 +145,7 @@ def list_templates(db: Session = Depends(get_db)) -> list[TemplateListItem]:
                 id=t.id,
                 name=t.name,
                 description=t.description,
+                template_type=getattr(t, "template_type", "invoice") or "invoice",
                 file_type=t.file_type,
                 worksheet=t.worksheet,
                 mapping_count=len(t.field_mappings),
@@ -203,6 +220,8 @@ def update_template(
     # Update base fields if provided
     if payload.description is not None:
         template.description = payload.description
+    if payload.template_type is not None:
+        template.template_type = payload.template_type
     if payload.worksheet is not None:
         template.worksheet = payload.worksheet
     if payload.header_row is not None:
@@ -221,6 +240,7 @@ def update_template(
         for m in payload.field_mappings:
             template.field_mappings.append(
                 TemplateFieldMapping(
+                    mapping_group=m.mapping_group,
                     field_name=m.field_name,
                     target_field=m.target_field,
                     mapping_type=m.mapping_type,
@@ -232,6 +252,7 @@ def update_template(
             )
 
     template.updated_at = datetime.now(timezone.utc)
+
 
     try:
         db.commit()

@@ -91,6 +91,41 @@ class RowExtractionResult:
         return len(self.errors) > 0
 
 
+_LINE_ITEM_FOOTER_LABELS: frozenset[str] = frozenset([
+    "subtotal",
+    "sub-total",
+    "sub total",
+    "total",
+    "grand total",
+    "total amount",
+    "total due",
+    "amount due",
+    "balance due",
+    "net amount",
+    "total payable",
+    "tax",
+    "tax total",
+    "sales tax",
+    "vat",
+    "gst",
+    "sst",
+    "discount",
+    "shipping",
+    "handling",
+    "freight",
+    "terms",
+    "terms and conditions",
+    "terms & conditions",
+    "payment terms",
+    "payment instructions",
+    "bank details",
+    "notes",
+    "remarks",
+    "thank you",
+    "thank you for your business",
+])
+
+
 @dataclass
 class ExtractionResult:
     """
@@ -100,7 +135,9 @@ class ExtractionResult:
     target_worksheet: str
     fields: list[ExtractedField] = field(default_factory=list)
     rows: list[RowExtractionResult] = field(default_factory=list)
+    line_items: list[RowExtractionResult] = field(default_factory=list)
     is_multi_record: bool = False
+    has_line_items: bool = False
     errors: list[ExtractionError] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -110,6 +147,8 @@ class ExtractionResult:
             return True
         if self.is_multi_record:
             return any(r.has_errors for r in self.rows)
+        if self.has_line_items:
+            return any(li.has_errors for li in self.line_items)
         return len(self.errors) > 0
 
     @property
@@ -117,6 +156,8 @@ class ExtractionResult:
         count = len(self.errors)
         if self.is_multi_record:
             count += sum(len(r.errors) for r in self.rows)
+        if self.has_line_items:
+            count += sum(len(li.errors) for li in self.line_items)
         return count
 
     @property
@@ -124,7 +165,10 @@ class ExtractionResult:
         count = len(self.warnings)
         if self.is_multi_record:
             count += sum(len(r.warnings) for r in self.rows)
+        if self.has_line_items:
+            count += sum(len(li.warnings) for li in self.line_items)
         return count
+
 
 
 # ── Extraction Engine ─────────────────────────────────────────────────────────
@@ -211,9 +255,23 @@ def extract_from_workbook(
 
     # Check if this template is a column-mapping template
     mappings = getattr(template, "field_mappings", []) or []
-    is_column_template = any(getattr(m, "mapping_type", "cell") == "column" for m in mappings)
+    template_type = getattr(template, "template_type", None)
 
-    if is_column_template:
+    # Check if this is a dataset (multi-record) template
+    is_dataset_template = (
+        template_type == "dataset"
+        or (
+            mappings
+            and all(
+                getattr(m, "mapping_type", "cell") == "column"
+                and getattr(m, "mapping_group", "header") == "header"
+                for m in mappings
+            )
+        )
+    )
+
+
+    if is_dataset_template:
         return _extract_column_rows_from_workbook(
             wb_formula=wb_formula,
             wb_values=wb_values,
@@ -224,10 +282,15 @@ def extract_from_workbook(
             mappings=mappings,
         )
 
+    # Invoice Template Mode (Extract Header Cells + Optional Repeating Line Items)
+    header_mappings = [m for m in mappings if getattr(m, "mapping_group", "header") == "header"]
+    line_item_mappings = [m for m in mappings if getattr(m, "mapping_group", "header") == "line_item"]
+
     workbook_epoch = getattr(wb_formula, "epoch", None)
     template_date_format = getattr(template, "date_format", None)
 
-    for mapping in mappings:
+    for mapping in header_mappings:
+
         field_name = mapping.field_name
         mapping_type = getattr(mapping, "mapping_type", "cell")
         raw_cell_ref = getattr(mapping, "cell_ref", None)
@@ -456,12 +519,293 @@ def extract_from_workbook(
             )
         )
 
+    # 2. Extract Line Items if configured
+    extracted_line_items: list[RowExtractionResult] = []
+    has_line_items = False
+
+    if line_item_mappings:
+        has_line_items = True
+        line_items_res = _extract_line_item_rows_from_workbook(
+            wb_formula=wb_formula,
+            wb_values=wb_values,
+            template=template,
+            target_sheet_name=target_sheet_name,
+            ws_formula=ws_formula,
+            ws_values=ws_values,
+            line_item_mappings=line_item_mappings,
+        )
+        extracted_line_items = line_items_res.line_items
+        errors.extend(line_items_res.errors)
+        warnings.extend(line_items_res.warnings)
+
     return ExtractionResult(
         target_worksheet=target_sheet_name,
         fields=extracted_fields,
+        line_items=extracted_line_items,
+        is_multi_record=False,
+        has_line_items=has_line_items,
         errors=errors,
         warnings=warnings,
     )
+
+
+def _extract_line_item_rows_from_workbook(
+    wb_formula: openpyxl.Workbook,
+    wb_values: openpyxl.Workbook,
+    template: Any,
+    target_sheet_name: str,
+    ws_formula: Any,
+    ws_values: Any,
+    line_item_mappings: list[Any],
+) -> ExtractionResult:
+    workbook_epoch = getattr(wb_formula, "epoch", None)
+    template_date_format = getattr(template, "date_format", None)
+    header_row = getattr(template, "header_row", None) or 1
+    data_start_row = getattr(template, "data_start_row", None) or (header_row + 1)
+
+    top_level_errors: list[ExtractionError] = []
+    top_level_warnings: list[str] = []
+
+    valid_mappings: list[tuple[Any, str]] = []
+    for mapping in line_item_mappings:
+        field_name = mapping.field_name
+        col_ref = getattr(mapping, "column_ref", None)
+        if not col_ref or not col_ref.strip():
+            top_level_errors.append(
+                ExtractionError(
+                    field_name=field_name,
+                    message=f"Missing column reference for line-item field '{field_name}'.",
+                    worksheet=target_sheet_name,
+                    cell_ref=None,
+                    error_type="missing_column_ref",
+                )
+            )
+        else:
+            valid_mappings.append((mapping, col_ref.strip().upper()))
+
+    if top_level_errors:
+        return ExtractionResult(
+            target_worksheet=target_sheet_name,
+            has_line_items=True,
+            line_items=[],
+            errors=top_level_errors,
+            warnings=top_level_warnings,
+        )
+
+    max_r = ws_formula.max_row or data_start_row
+    max_scan_row = min(max_r, data_start_row + 500)
+
+    extracted_items: list[RowExtractionResult] = []
+    consecutive_empty = 0
+
+    for row_num in range(data_start_row, max_scan_row + 1):
+        # 1. Quick probe for emptiness across all line item columns
+        row_raw_values: dict[str, Any] = {}
+        row_is_all_empty = True
+
+        for mapping, col_letter in valid_mappings:
+            cell_coord = f"{col_letter}{row_num}"
+            cell_val = ws_values[cell_coord].value
+            cell_f = ws_formula[cell_coord]
+            is_formula = (
+                cell_f.data_type == "f"
+                or (isinstance(cell_f.value, str) and str(cell_f.value).startswith("="))
+            )
+            raw = cell_f.value if is_formula else cell_val
+            row_raw_values[mapping.field_name] = raw
+            if (cell_val is not None and str(cell_val).strip() != "") or is_formula:
+                row_is_all_empty = False
+
+        if row_is_all_empty:
+            consecutive_empty += 1
+            if consecutive_empty >= 2:
+                break
+            continue
+        else:
+            consecutive_empty = 0
+
+        # 2. Contextual footer / summary row detection.
+        #
+        # Strategy: scan EVERY mapped column for footer keywords (not just
+        # the description column).  A footer keyword found in ANY cell is
+        # treated as a *candidate* signal.  To avoid false positives on
+        # legitimate product names (e.g. "Total Care Cleaning Kit"), we
+        # require *structural evidence*: key numeric columns (quantity and
+        # unit_price) must be blank or absent for the row to be classified
+        # as a summary/footer row.
+        #
+        # Text cleaning: strip parenthetical suffixes so that values like
+        # "Tax (8%)" match the base label "tax".
+
+        footer_keyword_found = False
+        qty_val = None
+        price_val = None
+
+        for mapping, _ in valid_mappings:
+            target = getattr(mapping, "target_field", None) or mapping.field_name
+
+            # Collect qty / unit_price values regardless of footer detection
+            if target in {"quantity", "qty"}:
+                qty_val = row_raw_values.get(mapping.field_name)
+            elif target in {"unit_price", "price", "rate"}:
+                price_val = row_raw_values.get(mapping.field_name)
+
+            # Check this column's value for a footer keyword
+            if not footer_keyword_found:
+                cell_val = row_raw_values.get(mapping.field_name)
+                if cell_val is not None and isinstance(cell_val, str):
+                    cleaned = cell_val.strip().lower()
+                    # Strip trailing colon  e.g.  "Total:"
+                    if cleaned.endswith(":"):
+                        cleaned = cleaned[:-1].strip()
+                    # Strip parenthetical suffix  e.g.  "Tax (8%)" → "tax"
+                    paren_idx = cleaned.find("(")
+                    if paren_idx > 0:
+                        cleaned = cleaned[:paren_idx].strip()
+
+                    if cleaned in _LINE_ITEM_FOOTER_LABELS:
+                        footer_keyword_found = True
+
+        if footer_keyword_found:
+            qty_empty = qty_val is None or str(qty_val).strip() == ""
+            price_empty = price_val is None or str(price_val).strip() == ""
+
+            if qty_empty or price_empty:
+                # Confirmed footer/summary row → stop line-item extraction
+                break
+
+        # 3. Extract this row
+        row_fields: list[ExtractedField] = []
+        row_errors: list[ExtractionError] = []
+        row_warnings: list[str] = []
+
+        for mapping, col_letter in valid_mappings:
+            cell_coord = f"{col_letter}{row_num}"
+            field_name = mapping.field_name
+            is_required = bool(getattr(mapping, "is_required", False))
+            data_type = getattr(mapping, "data_type", "text")
+
+            cell_formula = ws_formula[cell_coord]
+            cell_values = ws_values[cell_coord]
+
+            val_formula = cell_formula.value
+            val_cached = cell_values.value
+
+            is_formula = (
+                cell_formula.data_type == "f"
+                or (isinstance(val_formula, str) and val_formula.startswith("="))
+            )
+            formula_expr = str(val_formula) if is_formula else None
+            raw_val = val_formula if is_formula else val_cached
+
+            is_empty_cell = (
+                (val_cached is None or (isinstance(val_cached, str) and not val_cached.strip()))
+                and not is_formula
+            )
+
+            field_status: Literal["success", "empty_optional", "error"] = "success"
+            norm_val: Any = None
+            error_msg: str | None = None
+            warning_msg: str | None = None
+
+            if is_formula and val_cached is None:
+                warning_msg = f"Formula '{formula_expr}' in cell '{cell_coord}' has no cached calculated value in Excel."
+                row_warnings.append(warning_msg)
+                if is_required:
+                    field_status = "error"
+                    error_msg = f"Required line-item field '{field_name}' in cell '{cell_coord}' contains an uncalculated formula '{formula_expr}'."
+                    row_errors.append(
+                        ExtractionError(
+                            field_name=field_name,
+                            message=error_msg,
+                            worksheet=target_sheet_name,
+                            cell_ref=cell_coord,
+                            error_type="uncalculated_formula",
+                        )
+                    )
+                else:
+                    field_status = "empty_optional"
+            elif is_empty_cell:
+                if is_required:
+                    field_status = "error"
+                    error_msg = f"Required line-item field '{field_name}' in cell '{cell_coord}' (Row {row_num}) is empty."
+                    row_errors.append(
+                        ExtractionError(
+                            field_name=field_name,
+                            message=error_msg,
+                            worksheet=target_sheet_name,
+                            cell_ref=cell_coord,
+                            error_type="required_empty",
+                        )
+                    )
+                else:
+                    field_status = "empty_optional"
+            else:
+                value_to_normalize = val_cached if is_formula else raw_val
+                try:
+                    if data_type == "decimal":
+                        norm_val = normalize_decimal(value_to_normalize)
+                    elif data_type == "date":
+                        norm_val = normalize_date(
+                            value_to_normalize,
+                            date_format=template_date_format,
+                            workbook_epoch=workbook_epoch,
+                        )
+                    elif data_type == "integer":
+                        norm_val = normalize_integer(value_to_normalize)
+                    else:
+                        norm_val = normalize_text(value_to_normalize)
+                    field_status = "success"
+                except NormalizationError as exc:
+                    field_status = "error"
+                    error_msg = f"Failed to normalize value '{value_to_normalize}' as {data_type} for line-item field '{field_name}' in cell '{cell_coord}': {exc}"
+                    row_errors.append(
+                        ExtractionError(
+                            field_name=field_name,
+                            message=error_msg,
+                            worksheet=target_sheet_name,
+                            cell_ref=cell_coord,
+                            error_type="normalization_error",
+                        )
+                    )
+
+            row_fields.append(
+                ExtractedField(
+                    field_name=field_name,
+                    mapping_type="column",
+                    source_worksheet=target_sheet_name,
+                    source_cell_ref=cell_coord,
+                    raw_value=raw_val,
+                    data_type=data_type,
+                    is_required=is_required,
+                    is_empty_cell=is_empty_cell,
+                    is_formula=is_formula,
+                    formula_expression=formula_expr,
+                    normalized_value=norm_val,
+                    status=field_status,
+                    error_message=error_msg,
+                    warning_message=warning_msg,
+                )
+            )
+
+        extracted_items.append(
+            RowExtractionResult(
+                row_number=row_num,
+                fields=row_fields,
+                errors=row_errors,
+                warnings=row_warnings,
+                is_blank_row=False,
+            )
+        )
+
+    return ExtractionResult(
+        target_worksheet=target_sheet_name,
+        has_line_items=True,
+        line_items=extracted_items,
+        errors=top_level_errors,
+        warnings=top_level_warnings,
+    )
+
 
 
 def _extract_column_rows_from_workbook(

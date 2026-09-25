@@ -101,9 +101,43 @@ class InvoiceRecord(Base):
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     batch = relationship("ImportBatch", back_populates="invoice_records")
+    line_items = relationship(
+        "InvoiceLineItem",
+        back_populates="invoice_record",
+        cascade="all, delete-orphan",
+        order_by="InvoiceLineItem.source_row_number",
+    )
 
     def __repr__(self) -> str:
         return f"<InvoiceRecord id={self.id} number='{self.invoice_number}' company='{self.company_name}'>"
+
+
+class InvoiceLineItem(Base):
+    """
+    Represents an individual product or service line item belonging to an InvoiceRecord.
+    """
+
+    __tablename__ = "invoice_line_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    invoice_id = Column(
+        Integer, ForeignKey("invoice_records.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_row_number = Column(Integer, nullable=False)  # 1-based Excel row number
+    description = Column(String(500), nullable=True)
+    quantity = Column(Numeric(12, 4), nullable=True)
+    unit_price = Column(Numeric(12, 2), nullable=True)
+    tax_rate = Column(Numeric(8, 4), nullable=True)
+    tax_amount = Column(Numeric(12, 2), nullable=True)
+    amount = Column(Numeric(12, 2), nullable=True)
+    custom_fields = Column(JSON, nullable=True)  # SKU, UOM, discount, serial_number, etc.
+    raw_data = Column(Text, nullable=True)  # JSON string of raw extracted cell values
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    invoice_record = relationship("InvoiceRecord", back_populates="line_items")
+
+    def __repr__(self) -> str:
+        return f"<InvoiceLineItem id={self.id} invoice_id={self.invoice_id} row={self.source_row_number} desc='{self.description}'>"
 
 
 class ValidationErrorRecord(Base):
@@ -128,3 +162,4 @@ class ValidationErrorRecord(Base):
 
     def __repr__(self) -> str:
         return f"<ValidationErrorRecord id={self.id} rule='{self.rule_id}' severity='{self.severity}'>"
+

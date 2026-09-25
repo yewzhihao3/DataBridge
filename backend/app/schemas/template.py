@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.constants import CANONICAL_INVOICE_FIELDS
+from app.constants import CANONICAL_INVOICE_FIELDS, CANONICAL_LINE_ITEM_FIELDS
 from app.utils.cell_reference import (
     InvalidCellReference,
     parse_cell_reference,
@@ -23,6 +23,7 @@ from app.utils.cell_reference import (
 class FieldMappingBase(BaseModel):
     field_name: str = Field(..., min_length=1, max_length=100, description="Standard field identifier")
     target_field: str | None = Field(None, max_length=100, description="Canonical or custom backend field to map to")
+    mapping_group: Literal["header", "line_item"] = Field("header", description="Mapping group ('header' or 'line_item')")
     mapping_type: Literal["cell", "column"] = Field("cell", description="Mapping strategy ('cell' or 'column')")
     cell_ref: str | None = Field(None, description="Cell reference e.g. 'B2'")
     column_ref: str | None = Field(None, description="Column letter e.g. 'B'")
@@ -94,10 +95,10 @@ class FieldMappingRead(FieldMappingBase):
 # ── Template Schemas ──────────────────────────────────────────────────────────
 
 
-
 class TemplateBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Unique template name")
     description: str | None = Field(None, max_length=500)
+    template_type: Literal["invoice", "dataset"] = Field("invoice", description="Template mode ('invoice' or 'dataset')")
     file_type: Literal["xlsx"] = Field("xlsx", description="File format")
     worksheet: str | None = Field(None, max_length=100, description="Target worksheet name (null = first sheet)")
     header_row: int | None = Field(None, ge=1, description="Header row number (1-based)")
@@ -120,29 +121,42 @@ class TemplateCreate(TemplateBase):
 
     @model_validator(mode="after")
     def check_duplicate_field_names(self) -> TemplateCreate:
-        names_seen: set[str] = set()
-        canonical_targets_seen: set[str] = set()
-        for mapping in self.field_mappings:
-            if mapping.field_name in names_seen:
-                raise ValueError(
-                    f"Duplicate field_name '{mapping.field_name}' in template mappings. "
-                    "Each field name must be unique within a template."
-                )
-            names_seen.add(mapping.field_name)
+        names_seen: set[tuple[str, str]] = set()
+        canonical_header_targets: set[str] = set()
+        canonical_line_targets: set[str] = set()
 
-            if mapping.target_field and mapping.target_field in CANONICAL_INVOICE_FIELDS:
-                if mapping.target_field in canonical_targets_seen:
-                    raise ValueError(
-                        f"Duplicate mapping to canonical field '{mapping.target_field}'. "
-                        "Each canonical target field can only be mapped once per template."
-                    )
-                canonical_targets_seen.add(mapping.target_field)
+        for mapping in self.field_mappings:
+            group = mapping.mapping_group or "header"
+            name_key = (group, mapping.field_name)
+            if name_key in names_seen:
+                raise ValueError(
+                    f"Duplicate field_name '{mapping.field_name}' in mapping group '{group}'. "
+                    "Each field name must be unique within its mapping group."
+                )
+            names_seen.add(name_key)
+
+            if mapping.target_field:
+                if group == "header" and mapping.target_field in CANONICAL_INVOICE_FIELDS:
+                    if mapping.target_field in canonical_header_targets:
+                        raise ValueError(
+                            f"Duplicate mapping to canonical header field '{mapping.target_field}'. "
+                            "Each canonical header target field can only be mapped once per template."
+                        )
+                    canonical_header_targets.add(mapping.target_field)
+                elif group == "line_item" and mapping.target_field in CANONICAL_LINE_ITEM_FIELDS:
+                    if mapping.target_field in canonical_line_targets:
+                        raise ValueError(
+                            f"Duplicate mapping to canonical line-item field '{mapping.target_field}'. "
+                            "Each canonical line-item target field can only be mapped once per template."
+                        )
+                    canonical_line_targets.add(mapping.target_field)
         return self
 
 
 class TemplateUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100)
     description: str | None = Field(None, max_length=500)
+    template_type: Literal["invoice", "dataset"] | None = Field(None)
     worksheet: str | None = Field(None, max_length=100)
     header_row: int | None = Field(None, ge=1)
     data_start_row: int | None = Field(None, ge=1)
@@ -164,22 +178,32 @@ class TemplateUpdate(BaseModel):
     @model_validator(mode="after")
     def check_duplicate_update_field_names(self) -> TemplateUpdate:
         if self.field_mappings is not None:
-            names_seen: set[str] = set()
-            canonical_targets_seen: set[str] = set()
-            for mapping in self.field_mappings:
-                if mapping.field_name in names_seen:
-                    raise ValueError(
-                        f"Duplicate field_name '{mapping.field_name}' in template mappings."
-                    )
-                names_seen.add(mapping.field_name)
+            names_seen: set[tuple[str, str]] = set()
+            canonical_header_targets: set[str] = set()
+            canonical_line_targets: set[str] = set()
 
-                if mapping.target_field and mapping.target_field in CANONICAL_INVOICE_FIELDS:
-                    if mapping.target_field in canonical_targets_seen:
-                        raise ValueError(
-                            f"Duplicate mapping to canonical field '{mapping.target_field}'. "
-                            "Each canonical target field can only be mapped once per template."
-                        )
-                    canonical_targets_seen.add(mapping.target_field)
+            for mapping in self.field_mappings:
+                group = mapping.mapping_group or "header"
+                name_key = (group, mapping.field_name)
+                if name_key in names_seen:
+                    raise ValueError(
+                        f"Duplicate field_name '{mapping.field_name}' in mapping group '{group}'."
+                    )
+                names_seen.add(name_key)
+
+                if mapping.target_field:
+                    if group == "header" and mapping.target_field in CANONICAL_INVOICE_FIELDS:
+                        if mapping.target_field in canonical_header_targets:
+                            raise ValueError(
+                                f"Duplicate mapping to canonical header field '{mapping.target_field}'."
+                            )
+                        canonical_header_targets.add(mapping.target_field)
+                    elif group == "line_item" and mapping.target_field in CANONICAL_LINE_ITEM_FIELDS:
+                        if mapping.target_field in canonical_line_targets:
+                            raise ValueError(
+                                f"Duplicate mapping to canonical line-item field '{mapping.target_field}'."
+                            )
+                        canonical_line_targets.add(mapping.target_field)
         return self
 
 
@@ -196,6 +220,7 @@ class TemplateListItem(BaseModel):
     id: int
     name: str
     description: str | None = None
+    template_type: str = "invoice"
     file_type: str
     worksheet: str | None = None
     mapping_count: int
@@ -203,3 +228,4 @@ class TemplateListItem(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
