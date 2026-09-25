@@ -233,7 +233,7 @@ def validate_extraction(
         # B. If field is empty optional, record None and proceed
         if f.status == "empty_optional":
             # Use target_field as the key if explicitly configured
-            norm_key = _field_to_target.get(f.field_name, f.field_name)
+            norm_key = getattr(f, "target_field", None) or _field_to_target.get(f.field_name, f.field_name)
             normalized_data[norm_key] = None
             if f.warning_message:
                 issues.append(
@@ -252,7 +252,7 @@ def validate_extraction(
         # C. Field status == "success": record normalized value and apply business rules
         val = f.normalized_value
         # Use target_field as the key if explicitly configured
-        norm_key = _field_to_target.get(f.field_name, f.field_name)
+        norm_key = getattr(f, "target_field", None) or _field_to_target.get(f.field_name, f.field_name)
         normalized_data[norm_key] = val
 
         # Rule: Empty identifier check (company_name, invoice_number)
@@ -409,7 +409,7 @@ def _validate_line_items(
         row_norm_data: dict[str, Any] = {}
 
         for f in item.fields:
-            target_key = _field_to_target.get(f.field_name, f.field_name)
+            target_key = getattr(f, "target_field", None) or _field_to_target.get(f.field_name, f.field_name)
             if f.status == "error":
                 if f.is_empty_cell and f.is_required:
                     iss = ValidationIssue(
@@ -566,7 +566,7 @@ def _validate_multi_record_extraction(
                 continue
 
             if f.status == "empty_optional":
-                norm_key = _field_to_target.get(f.field_name, f.field_name)
+                norm_key = getattr(f, "target_field", None) or _field_to_target.get(f.field_name, f.field_name)
                 row_norm_data[norm_key] = None
                 if f.warning_message:
                     row_issues.append(
@@ -583,7 +583,7 @@ def _validate_multi_record_extraction(
                 continue
 
             val = f.normalized_value
-            norm_key = _field_to_target.get(f.field_name, f.field_name)
+            norm_key = getattr(f, "target_field", None) or _field_to_target.get(f.field_name, f.field_name)
             row_norm_data[norm_key] = val
 
             # Rule: Empty identifier check (company_name, invoice_number)

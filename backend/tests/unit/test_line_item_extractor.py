@@ -145,7 +145,7 @@ def test_composite_invoice_extraction_with_line_items(composite_invoice_file: Pa
     assert item1_fields["desc"] == "Ergonomic Office Chair"
     assert item1_fields["qty"] == Decimal("6")
     assert item1_fields["price"] == Decimal("689.00")
-    assert item1_fields["tax_rate"] == Decimal("8")
+    assert item1_fields["tax_rate"] == Decimal("0.08")
     assert item1_fields["amount"] == Decimal("4134.00")
     assert item1_fields["sku"] == "SKU-CHAIR-01"
 

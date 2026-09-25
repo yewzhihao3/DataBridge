@@ -70,6 +70,7 @@ class ExtractedField:
     formula_expression: str | None
     normalized_value: Any
     status: Literal["success", "empty_optional", "error"]
+    target_field: str | None = None
     error_message: str | None = None
     warning_message: str | None = None
 
@@ -503,6 +504,7 @@ def extract_from_workbook(
         extracted_fields.append(
             ExtractedField(
                 field_name=field_name,
+                target_field=getattr(mapping, "target_field", None),
                 mapping_type=mapping_type,
                 source_worksheet=target_sheet_name,
                 source_cell_ref=cell_coord,
@@ -617,9 +619,10 @@ def _extract_line_item_rows_from_workbook(
                 row_is_all_empty = False
 
         if row_is_all_empty:
-            consecutive_empty += 1
-            if consecutive_empty >= 2:
-                break
+            if extracted_items:
+                consecutive_empty += 1
+                if consecutive_empty >= 2:
+                    break
             continue
         else:
             consecutive_empty = 0
@@ -693,7 +696,7 @@ def _extract_line_item_rows_from_workbook(
 
             is_formula = (
                 cell_formula.data_type == "f"
-                or (isinstance(val_formula, str) and val_formula.startswith("="))
+                or (isinstance(val_formula, str) and str(val_formula).startswith("="))
             )
             formula_expr = str(val_formula) if is_formula else None
             raw_val = val_formula if is_formula else val_cached
@@ -772,6 +775,7 @@ def _extract_line_item_rows_from_workbook(
             row_fields.append(
                 ExtractedField(
                     field_name=field_name,
+                    target_field=getattr(mapping, "target_field", None),
                     mapping_type="column",
                     source_worksheet=target_sheet_name,
                     source_cell_ref=cell_coord,
@@ -981,6 +985,7 @@ def _extract_column_rows_from_workbook(
             row_fields.append(
                 ExtractedField(
                     field_name=field_name,
+                    target_field=getattr(mapping, "target_field", None),
                     mapping_type="column",
                     source_worksheet=target_sheet_name,
                     source_cell_ref=cell_coord,

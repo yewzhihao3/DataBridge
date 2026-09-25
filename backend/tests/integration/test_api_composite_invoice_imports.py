@@ -149,7 +149,7 @@ async def test_composite_invoice_end_to_end(client: AsyncClient, db_session: Ses
         "Hydraulic Pressure Hose",
     ]
     # Check tax_rate and tax_amount
-    assert Decimal(get_field_val(preview["line_items"][0], "tax_rate")) == Decimal("8")
+    assert Decimal(get_field_val(preview["line_items"][0], "tax_rate")) == Decimal("0.08")
     assert Decimal(get_field_val(preview["line_items"][0], "tax_amount")) == Decimal("120.00")
     assert Decimal(get_field_val(preview["line_items"][0], "amount")) == Decimal("1500.00")
     assert preview["line_items"][0]["source_row_number"] == 8
@@ -190,7 +190,7 @@ async def test_composite_invoice_end_to_end(client: AsyncClient, db_session: Ses
     assert li1.description == "Industrial Valve Component"
     assert li1.quantity == Decimal("10")
     assert li1.unit_price == Decimal("150.00")
-    assert li1.tax_rate == Decimal("8")
+    assert li1.tax_rate == Decimal("0.08")
     assert li1.tax_amount == Decimal("120.00")
     assert li1.amount == Decimal("1500.00")
     assert li1.source_row_number == 8

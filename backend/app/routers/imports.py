@@ -418,27 +418,49 @@ def confirm_import(
         )
 
     # 5. Build and commit database transaction
+    # 5. Build and commit database transaction
+    CANONICAL_INVOICE_ALIASES: dict[str, tuple[str, ...]] = {
+        "company_name": ("company_name", "company", "supplier", "supplier_name", "vendor", "vendor_name", "organization", "bill_from"),
+        "invoice_number": ("invoice_number", "invoice_num", "invoice_no", "inv_no", "inv_num", "inv_number", "invoice_id"),
+        "invoice_date": ("invoice_date", "date", "inv_date", "issue_date", "billing_date"),
+        "total_amount": ("total_amount", "amount", "total", "total_amt", "grand_total", "invoice_total", "total_invoice_amount", "invoice_total_amount", "total_due", "amount_due", "net_amount"),
+        "currency": ("currency", "curr", "currency_code"),
+    }
+
+    CANONICAL_LINE_ITEM_ALIASES: dict[str, tuple[str, ...]] = {
+        "description": ("description", "desc", "item", "product", "item_description", "product_description", "details", "particulars"),
+        "quantity": ("quantity", "qty", "count", "units"),
+        "unit_price": ("unit_price", "price", "rate", "unit_rate", "price_unit"),
+        "tax_rate": ("tax_rate", "tax_pct", "tax_percent", "tax_rate_pct", "vat_rate", "gst_rate"),
+        "tax_amount": ("tax_amount", "tax", "tax_amt", "vat_amount", "gst_amount"),
+        "amount": ("amount", "line_total", "total", "line_amount", "subtotal", "extended_amount"),
+    }
+
     _norm_canonical_set = {
-        str(c).strip().lower().replace(" ", "_").replace("-", "_")
-        for c in CANONICAL_INVOICE_FIELDS
-    } | {"company", "invoice_num", "date", "amount"}
+        str(alias).strip().lower().replace(" ", "_").replace("-", "_")
+        for key, aliases in CANONICAL_INVOICE_ALIASES.items()
+        for alias in (key, *aliases)
+    }
 
     _norm_line_canonical_set = {
-        str(c).strip().lower().replace(" ", "_").replace("-", "_")
-        for c in CANONICAL_LINE_ITEM_FIELDS
-    } | {"qty", "price", "rate", "item", "product"}
+        str(alias).strip().lower().replace(" ", "_").replace("-", "_")
+        for key, aliases in CANONICAL_LINE_ITEM_ALIASES.items()
+        for alias in (key, *aliases)
+    }
 
-    def _resolve_row_canonical(norm_data: dict[str, Any], primary: str, *aliases: str) -> Any:
+    def _resolve_row_canonical(norm_data: dict[str, Any], canonical_key: str, aliases: tuple[str, ...]) -> Any:
+        for k in (canonical_key, *aliases):
+            if k in norm_data and norm_data[k] is not None:
+                return norm_data[k]
         _norm_lookup = {
             str(_k).strip().lower().replace(" ", "_").replace("-", "_"): _v
             for _k, _v in norm_data.items()
+            if _v is not None
         }
-        for key in (primary, *aliases):
-            if key in norm_data:
-                return norm_data[key]
-        for key in (primary, *aliases):
-            if key in _norm_lookup:
-                return _norm_lookup[key]
+        for k in (canonical_key, *aliases):
+            norm_k = str(k).strip().lower().replace(" ", "_").replace("-", "_")
+            if norm_k in _norm_lookup:
+                return _norm_lookup[norm_k]
         return None
 
     def _serialize_custom_val(val: Any) -> Any:
@@ -490,11 +512,11 @@ def confirm_import(
 
         for rr in validation_report.row_reports:
             norm_data = rr.normalized_data
-            comp_name = _resolve_row_canonical(norm_data, "company_name", "company") or "Unknown Company"
-            inv_num = _resolve_row_canonical(norm_data, "invoice_number", "invoice_num") or "Unknown Invoice"
-            inv_date = _coerce_date(_resolve_row_canonical(norm_data, "invoice_date", "date"))
-            tot_amt = _coerce_decimal(_resolve_row_canonical(norm_data, "total_amount", "amount"))
-            curr = _resolve_row_canonical(norm_data, "currency")
+            comp_name = _resolve_row_canonical(norm_data, "company_name", CANONICAL_INVOICE_ALIASES["company_name"]) or "Unknown Company"
+            inv_num = _resolve_row_canonical(norm_data, "invoice_number", CANONICAL_INVOICE_ALIASES["invoice_number"]) or "Unknown Invoice"
+            inv_date = _coerce_date(_resolve_row_canonical(norm_data, "invoice_date", CANONICAL_INVOICE_ALIASES["invoice_date"]))
+            tot_amt = _coerce_decimal(_resolve_row_canonical(norm_data, "total_amount", CANONICAL_INVOICE_ALIASES["total_amount"]))
+            curr = _resolve_row_canonical(norm_data, "currency", CANONICAL_INVOICE_ALIASES["currency"])
 
             custom_fields: dict[str, Any] = {}
             for key, val in norm_data.items():
@@ -520,11 +542,11 @@ def confirm_import(
             batch.invoice_records.append(invoice_record)
     else:
         norm_data = validation_report.normalized_data
-        comp_name = _resolve_row_canonical(norm_data, "company_name", "company") or "Unknown Company"
-        inv_num = _resolve_row_canonical(norm_data, "invoice_number", "invoice_num") or "Unknown Invoice"
-        inv_date = _coerce_date(_resolve_row_canonical(norm_data, "invoice_date", "date"))
-        tot_amt = _coerce_decimal(_resolve_row_canonical(norm_data, "total_amount", "amount"))
-        curr = _resolve_row_canonical(norm_data, "currency")
+        comp_name = _resolve_row_canonical(norm_data, "company_name", CANONICAL_INVOICE_ALIASES["company_name"]) or "Unknown Company"
+        inv_num = _resolve_row_canonical(norm_data, "invoice_number", CANONICAL_INVOICE_ALIASES["invoice_number"]) or "Unknown Invoice"
+        inv_date = _coerce_date(_resolve_row_canonical(norm_data, "invoice_date", CANONICAL_INVOICE_ALIASES["invoice_date"]))
+        tot_amt = _coerce_decimal(_resolve_row_canonical(norm_data, "total_amount", CANONICAL_INVOICE_ALIASES["total_amount"]))
+        curr = _resolve_row_canonical(norm_data, "currency", CANONICAL_INVOICE_ALIASES["currency"])
 
         custom_fields = {}
         for key, val in norm_data.items():
@@ -560,12 +582,12 @@ def confirm_import(
             li_rows_by_num = {r.row_number: r for r in extraction_result.line_items}
             for lr in validation_report.line_item_reports:
                 li_norm = lr.normalized_data
-                li_desc = _resolve_row_canonical(li_norm, "description", "item", "product")
-                li_qty = _coerce_decimal(_resolve_row_canonical(li_norm, "quantity", "qty"))
-                li_price = _coerce_decimal(_resolve_row_canonical(li_norm, "unit_price", "price", "rate"))
-                li_tax_rate = _coerce_decimal(_resolve_row_canonical(li_norm, "tax_rate"))
-                li_tax_amt = _coerce_decimal(_resolve_row_canonical(li_norm, "tax_amount", "tax"))
-                li_amt = _coerce_decimal(_resolve_row_canonical(li_norm, "amount", "line_total"))
+                li_desc = _resolve_row_canonical(li_norm, "description", CANONICAL_LINE_ITEM_ALIASES["description"])
+                li_qty = _coerce_decimal(_resolve_row_canonical(li_norm, "quantity", CANONICAL_LINE_ITEM_ALIASES["quantity"]))
+                li_price = _coerce_decimal(_resolve_row_canonical(li_norm, "unit_price", CANONICAL_LINE_ITEM_ALIASES["unit_price"]))
+                li_tax_rate = _coerce_decimal(_resolve_row_canonical(li_norm, "tax_rate", CANONICAL_LINE_ITEM_ALIASES["tax_rate"]))
+                li_tax_amt = _coerce_decimal(_resolve_row_canonical(li_norm, "tax_amount", CANONICAL_LINE_ITEM_ALIASES["tax_amount"]))
+                li_amt = _coerce_decimal(_resolve_row_canonical(li_norm, "amount", CANONICAL_LINE_ITEM_ALIASES["amount"]))
 
                 li_custom: dict[str, Any] = {}
                 for key, val in li_norm.items():

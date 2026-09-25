@@ -25,6 +25,7 @@ class ExtractionErrorSchema(BaseModel):
 
 class ExtractedFieldSchema(BaseModel):
     field_name: str
+    target_field: str | None = None
     mapping_type: str
     source_worksheet: str
     source_cell_ref: str | None

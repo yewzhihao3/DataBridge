@@ -176,7 +176,9 @@ def normalize_decimal(val: Any) -> Decimal | None:
         cleaned = _CURRENCY_SUFFIX_REGEX.sub("", cleaned).strip()
 
         # Strip trailing percentage sign (e.g. "8%", "8.5%")
+        is_percentage = False
         if cleaned.endswith("%"):
+            is_percentage = True
             cleaned = cleaned[:-1].strip()
 
         # Check again in case minus/parens were after currency symbol (e.g. "-RM 1,250.50" or "RM -1,250.50")
@@ -204,6 +206,8 @@ def normalize_decimal(val: Any) -> Decimal | None:
 
         try:
             result = Decimal(cleaned)
+            if is_percentage:
+                result = result / Decimal("100")
             if result.is_nan() or result.is_infinite():
                 raise NormalizationError(f"Cannot convert '{val}' (NaN/Inf) to decimal.")
             return -result if is_negative else result
