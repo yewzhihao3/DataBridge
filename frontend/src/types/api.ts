@@ -342,3 +342,21 @@ export interface DataExplorerFilterOptions {
   companies: string[]
   currencies: string[]
 }
+
+// ── Export Center Types ──────────────────────────────────────────────────────
+
+export interface ExportSummaryResponse {
+  dataset: 'invoices' | 'line-items'
+  total_records: number
+  column_count: number
+  columns: string[]
+}
+
+export interface ExportFilterParams {
+  search?: string
+  company?: string
+  currency?: string
+  date_from?: string
+  date_to?: string
+  has_line_items?: boolean
+}

@@ -20,6 +20,11 @@ const router = createRouter({
       component: () => import('@/views/DataExplorerView.vue'),
     },
     {
+      path: '/exports',
+      name: 'export-center',
+      component: () => import('@/views/ExportCenterView.vue'),
+    },
+    {
       path: '/templates',
       name: 'template-manager',
       component: () => import('@/views/TemplateManagerView.vue'),

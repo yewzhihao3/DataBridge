@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/services/api'
-import { Database, FileSpreadsheet, History, Layers, TableProperties } from 'lucide-vue-next'
+import { Database, Download, FileSpreadsheet, History, Layers, TableProperties } from 'lucide-vue-next'
 
 const route = useRoute()
 const backendStatus = ref<'online' | 'offline' | 'checking'>('checking')
@@ -45,12 +45,12 @@ onMounted(async () => {
         </router-link>
 
         <router-link
-          to="/explorer"
+          to="/templates"
           class="nav-tab"
-          :class="{ active: route.path.startsWith('/explorer') }"
+          :class="{ active: route.path === '/templates' }"
         >
-          <TableProperties :size="18" />
-          <span>Data Explorer</span>
+          <Layers :size="18" />
+          <span>Templates</span>
         </router-link>
 
         <router-link
@@ -63,12 +63,21 @@ onMounted(async () => {
         </router-link>
 
         <router-link
-          to="/templates"
+          to="/explorer"
           class="nav-tab"
-          :class="{ active: route.path === '/templates' }"
+          :class="{ active: route.path.startsWith('/explorer') }"
         >
-          <Layers :size="18" />
-          <span>Templates</span>
+          <TableProperties :size="18" />
+          <span>Data Explorer</span>
+        </router-link>
+
+        <router-link
+          to="/exports"
+          class="nav-tab"
+          :class="{ active: route.path.startsWith('/exports') }"
+        >
+          <Download :size="18" />
+          <span>Export Center</span>
         </router-link>
       </nav>
 

@@ -6,6 +6,8 @@
 import type {
   ApiError,
   DataExplorerFilterOptions,
+  ExportFilterParams,
+  ExportSummaryResponse,
   ExtractionPreviewResponse,
   ImportBatchDetail,
   ImportBatchListItem,
@@ -405,5 +407,78 @@ export const api = {
   /** Fetch unique filter options (companies, currencies) present in non-deleted records. */
   async getDataExplorerFilterOptions(): Promise<DataExplorerFilterOptions> {
     return request<DataExplorerFilterOptions>('/data/filter-options')
+  },
+
+  // ── Export Center ───────────────────────────────────────────
+
+  /** Fetch export metadata (record count and discovered columns) for a dataset and filters. */
+  async getExportSummary(
+    dataset: 'invoices' | 'line-items',
+    filters: ExportFilterParams = {},
+  ): Promise<ExportSummaryResponse> {
+    const qp = new URLSearchParams({ dataset })
+    if (filters.search) qp.set('search', filters.search)
+    if (filters.company) qp.set('company', filters.company)
+    if (filters.currency) qp.set('currency', filters.currency)
+    if (filters.date_from) qp.set('date_from', filters.date_from)
+    if (filters.date_to) qp.set('date_to', filters.date_to)
+    if (filters.has_line_items !== undefined) qp.set('has_line_items', String(filters.has_line_items))
+
+    return request<ExportSummaryResponse>(`/exports/summary?${qp.toString()}`)
+  },
+
+  /**
+   * Triggers browser file download for CSV or XLSX export.
+   * Resolves when download initiation is complete.
+   */
+  async downloadExport(
+    dataset: 'invoices' | 'line-items',
+    format: 'csv' | 'xlsx',
+    filters: ExportFilterParams = {},
+  ): Promise<string> {
+    const qp = new URLSearchParams()
+    if (filters.search) qp.set('search', filters.search)
+    if (filters.company) qp.set('company', filters.company)
+    if (filters.currency) qp.set('currency', filters.currency)
+    if (filters.date_from) qp.set('date_from', filters.date_from)
+    if (filters.date_to) qp.set('date_to', filters.date_to)
+    if (filters.has_line_items !== undefined) qp.set('has_line_items', String(filters.has_line_items))
+
+    const queryString = qp.toString()
+    const url = `/api/v1/exports/${dataset}.${format}${queryString ? `?${queryString}` : ''}`
+
+    const res = await fetch(url)
+    if (!res.ok) {
+      let errMsg = `Export failed (${res.status})`
+      try {
+        const errJson = await res.json()
+        errMsg = errJson.detail || errMsg
+      } catch {
+        // fallback
+      }
+      throw new Error(errMsg)
+    }
+
+    // Extract filename from Content-Disposition header if present
+    let filename = `databridge_${dataset}_${new Date().toISOString().split('T')[0]}.${format}`
+    const disposition = res.headers.get('Content-Disposition')
+    if (disposition) {
+      const match = disposition.match(/filename="?([^";]+)"?/i)
+      if (match && match[1]) {
+        filename = match[1].trim()
+      }
+    }
+
+    const blob = await res.blob()
+    const blobUrl = window.URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = blobUrl
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    window.URL.revokeObjectURL(blobUrl)
+
+    return filename
   },
 }

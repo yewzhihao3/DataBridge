@@ -14,6 +14,7 @@ from app.config import settings
 from app.database import Base, engine
 from app.routers import (
     data_explorer_router,
+    exports_router,
     files_router,
     imports_router,
     templates_router,
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(templates_router)
     app.include_router(imports_router)
     app.include_router(data_explorer_router)
+    app.include_router(exports_router)
 
     @app.get("/health", tags=["Health"])
     async def health_check() -> dict[str, str]:

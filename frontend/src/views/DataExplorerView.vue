@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Download,
   FileSpreadsheet,
   FileText,
   Layers,
@@ -380,6 +381,24 @@ function navigateToIngestion() {
   router.push('/')
 }
 
+function navigateToExport(dataset: 'invoices' | 'line-items') {
+  const qp: Record<string, string> = { dataset }
+  if (dataset === 'invoices') {
+    if (invoiceSearch.value.trim()) qp.search = invoiceSearch.value.trim()
+    if (invoiceCompanyFilter.value) qp.company = invoiceCompanyFilter.value
+    if (invoiceCurrencyFilter.value) qp.currency = invoiceCurrencyFilter.value
+    if (invoiceDateFrom.value) qp.date_from = invoiceDateFrom.value
+    if (invoiceDateTo.value) qp.date_to = invoiceDateTo.value
+  } else {
+    if (lineItemSearch.value.trim()) qp.search = lineItemSearch.value.trim()
+    if (lineItemCompanyFilter.value) qp.company = lineItemCompanyFilter.value
+    if (lineItemCurrencyFilter.value) qp.currency = lineItemCurrencyFilter.value
+    if (lineItemDateFrom.value) qp.date_from = lineItemDateFrom.value
+    if (lineItemDateTo.value) qp.date_to = lineItemDateTo.value
+  }
+  router.push({ path: '/exports', query: qp })
+}
+
 // ── Lifecycle ───────────────────────────────────────────────────────────────
 
 onMounted(() => {
@@ -569,6 +588,18 @@ watch(activeTab, (tab) => {
               aria-label="Refresh invoices"
             >
               <RefreshCw :size="15" :class="{ spin: isLoadingInvoices }" />
+            </button>
+
+            <!-- Export Shortcut Button -->
+            <button
+              type="button"
+              class="btn-export-shortcut"
+              @click="navigateToExport('invoices')"
+              title="Export filtered invoices"
+              aria-label="Export filtered invoices"
+            >
+              <Download :size="14" />
+              <span>Export</span>
             </button>
           </div>
         </div>
@@ -974,6 +1005,18 @@ watch(activeTab, (tab) => {
               aria-label="Refresh line items"
             >
               <RefreshCw :size="15" :class="{ spin: isLoadingLineItems }" />
+            </button>
+
+            <!-- Export Shortcut Button -->
+            <button
+              type="button"
+              class="btn-export-shortcut"
+              @click="navigateToExport('line-items')"
+              title="Export filtered line items"
+              aria-label="Export filtered line items"
+            >
+              <Download :size="14" />
+              <span>Export</span>
             </button>
           </div>
         </div>
@@ -1534,6 +1577,28 @@ watch(activeTab, (tab) => {
   color: var(--text-primary);
   border-color: var(--border-medium);
 }
+
+.btn-export-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-export-shortcut:hover {
+  border-color: var(--accent-brand);
+  color: var(--accent-brand);
+  background: var(--accent-brand-subtle);
+}
+
 
 /* Table Card */
 .zen-table-card {
