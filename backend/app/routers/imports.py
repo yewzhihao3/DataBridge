@@ -49,6 +49,7 @@ from app.schemas.import_batch import (
 )
 
 from app.services.extractor import extract_from_file
+from app.services.normalizer import normalize_date, normalize_decimal
 from app.services.validator import ValidationConfig, validate_extraction
 from app.services.workbook_inspector import (
     CorruptWorkbookError,
