@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/services/api'
-import { Database, FileSpreadsheet, History, Layers } from 'lucide-vue-next'
+import { Database, FileSpreadsheet, History, Layers, TableProperties } from 'lucide-vue-next'
 
 const route = useRoute()
 const backendStatus = ref<'online' | 'offline' | 'checking'>('checking')
@@ -42,6 +42,15 @@ onMounted(async () => {
         >
           <FileSpreadsheet :size="18" />
           <span>Ingestion Studio</span>
+        </router-link>
+
+        <router-link
+          to="/explorer"
+          class="nav-tab"
+          :class="{ active: route.path.startsWith('/explorer') }"
+        >
+          <TableProperties :size="18" />
+          <span>Data Explorer</span>
         </router-link>
 
         <router-link

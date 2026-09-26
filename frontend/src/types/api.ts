@@ -259,3 +259,86 @@ export interface ApiError {
   isWarningAcknowledgmentRequired?: boolean
   validationErrors?: string[]
 }
+
+// ── Data Explorer Types ──────────────────────────────────────────────────────
+
+export interface InvoiceListItem {
+  id: number
+  batch_id: number
+  company_name: string
+  invoice_number: string
+  invoice_date?: string | null
+  total_amount?: number | null
+  currency?: string | null
+  source_worksheet: string
+  source_row_number?: number | null
+  line_item_count: number
+  created_at: string
+  source_filename?: string | null
+}
+
+export interface InvoiceDetailBatchInfo {
+  id: number
+  source_file_id: number
+  source_filename: string
+  template_id: number
+  template_name: string
+  status: string
+  imported_at: string
+}
+
+export interface InvoiceDetailResponse {
+  id: number
+  batch_id: number
+  company_name: string
+  invoice_number: string
+  invoice_date?: string | null
+  total_amount?: number | null
+  currency?: string | null
+  source_worksheet: string
+  source_row_number?: number | null
+  custom_fields?: Record<string, any> | null
+  created_at: string
+  batch?: InvoiceDetailBatchInfo | null
+  line_items: InvoiceLineItemRead[]
+  raw_data?: Record<string, any> | null
+}
+
+export interface LineItemListItem {
+  id: number
+  invoice_id: number
+  invoice_number: string
+  company_name: string
+  invoice_date?: string | null
+  currency?: string | null
+  source_row_number: number
+  description?: string | null
+  quantity?: number | null
+  unit_price?: number | null
+  tax_rate?: number | null
+  tax_amount?: number | null
+  amount?: number | null
+  custom_fields?: Record<string, any> | null
+  created_at: string
+}
+
+export interface PaginatedInvoicesResponse {
+  items: InvoiceListItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface PaginatedLineItemsResponse {
+  items: LineItemListItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface DataExplorerFilterOptions {
+  companies: string[]
+  currencies: string[]
+}

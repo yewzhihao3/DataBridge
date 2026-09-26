@@ -5,12 +5,16 @@
 
 import type {
   ApiError,
+  DataExplorerFilterOptions,
   ExtractionPreviewResponse,
   ImportBatchDetail,
   ImportBatchListItem,
   ImportConfirmRequest,
+  InvoiceDetailResponse,
   InvoiceRecordRead,
   InvoiceRecordUpdate,
+  PaginatedInvoicesResponse,
+  PaginatedLineItemsResponse,
   SourceFileUploadResponse,
   TemplateCreate,
   TemplateDetail,
@@ -317,5 +321,89 @@ export const api = {
   /** Returns the list of canonical target field names supported by InvoiceLineItem. */
   async listCanonicalLineItemFields(): Promise<string[]> {
     return request<string[]>('/templates/canonical-line-item-fields')
+  },
+
+  // ── Data Explorer ───────────────────────────────────────────
+
+  /** Browse paginated invoice records with server-side search, filtering, and sorting. */
+  async listDataExplorerInvoices(params: {
+    search?: string
+    company?: string
+    currency?: string
+    date_from?: string
+    date_to?: string
+    has_line_items?: boolean
+    sort_by?: string
+    sort_order?: string
+    page?: number
+    page_size?: number
+  } = {}): Promise<PaginatedInvoicesResponse> {
+    const qp = new URLSearchParams()
+    if (params.search) qp.set('search', params.search)
+    if (params.company) qp.set('company', params.company)
+    if (params.currency) qp.set('currency', params.currency)
+    if (params.date_from) qp.set('date_from', params.date_from)
+    if (params.date_to) qp.set('date_to', params.date_to)
+    if (params.has_line_items !== undefined) qp.set('has_line_items', String(params.has_line_items))
+    if (params.sort_by) qp.set('sort_by', params.sort_by)
+    if (params.sort_order) qp.set('sort_order', params.sort_order)
+    if (params.page !== undefined) qp.set('page', String(params.page))
+    if (params.page_size !== undefined) qp.set('page_size', String(params.page_size))
+
+    const queryString = qp.toString()
+    return request<PaginatedInvoicesResponse>(
+      `/data/invoices${queryString ? `?${queryString}` : ''}`,
+    )
+  },
+
+  /** Get complete detail of an individual invoice record. */
+  async getDataExplorerInvoice(invoiceId: number): Promise<InvoiceDetailResponse> {
+    return request<InvoiceDetailResponse>(`/data/invoices/${invoiceId}`)
+  },
+
+  /** Update canonical fields on an invoice record. */
+  async updateDataExplorerInvoice(
+    invoiceId: number,
+    payload: InvoiceRecordUpdate,
+  ): Promise<InvoiceDetailResponse> {
+    return request<InvoiceDetailResponse>(`/data/invoices/${invoiceId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  },
+
+  /** Browse paginated flattened line items across all invoices with server-side filters. */
+  async listDataExplorerLineItems(params: {
+    search?: string
+    company?: string
+    currency?: string
+    date_from?: string
+    date_to?: string
+    sort_by?: string
+    sort_order?: string
+    page?: number
+    page_size?: number
+  } = {}): Promise<PaginatedLineItemsResponse> {
+    const qp = new URLSearchParams()
+    if (params.search) qp.set('search', params.search)
+    if (params.company) qp.set('company', params.company)
+    if (params.currency) qp.set('currency', params.currency)
+    if (params.date_from) qp.set('date_from', params.date_from)
+    if (params.date_to) qp.set('date_to', params.date_to)
+    if (params.sort_by) qp.set('sort_by', params.sort_by)
+    if (params.sort_order) qp.set('sort_order', params.sort_order)
+    if (params.page !== undefined) qp.set('page', String(params.page))
+    if (params.page_size !== undefined) qp.set('page_size', String(params.page_size))
+
+    const queryString = qp.toString()
+    return request<PaginatedLineItemsResponse>(
+      `/data/line-items${queryString ? `?${queryString}` : ''}`,
+    )
+  },
+
+  /** Fetch unique filter options (companies, currencies) present in non-deleted records. */
+  async getDataExplorerFilterOptions(): Promise<DataExplorerFilterOptions> {
+    return request<DataExplorerFilterOptions>('/data/filter-options')
   },
 }

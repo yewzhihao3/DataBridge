@@ -15,6 +15,11 @@ const router = createRouter({
       component: () => import('@/views/ImportHistoryView.vue'),
     },
     {
+      path: '/explorer',
+      name: 'data-explorer',
+      component: () => import('@/views/DataExplorerView.vue'),
+    },
+    {
       path: '/templates',
       name: 'template-manager',
       component: () => import('@/views/TemplateManagerView.vue'),
