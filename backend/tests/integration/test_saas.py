@@ -4,9 +4,10 @@ from decimal import Decimal
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.main import app
 from app.models import SourceFile, Template, ImportBatch, InvoiceRecord, InvoiceLineItem
-from app.models.identity import User, OrganizationMembership, AuthSession, OrganizationInvitation
+from app.models.identity import User, Organization, OrganizationMembership, AuthSession, OrganizationInvitation
 
 
 async def register(client, email="new@example.test", workspace="New Workspace"):
@@ -171,3 +172,53 @@ async def test_registration_rollback_and_no_password_echo(client, db_session, mo
     result = await client.post("/api/v1/auth/register", json=dict(email="rollback@example.test", password="shortsecret", display_name="Rollback", workspace_name="Rollback"))
     assert result.status_code == 422
     assert "shortsecret" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_invitation_registration_is_atomic_and_creates_no_workspace(client, db_session, monkeypatch):
+    owner_org = (await client.get("/api/v1/auth/me")).json()["active_workspace_id"]
+    invitation = await client.post("/api/v1/workspaces/current/invitations", json={"email": "new-invitee@example.test"})
+    token = invitation.json()["invitation_url"].split("#")[1]
+    with Session(db_session.bind) as db:
+        organizations_before = db.query(Organization).count()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as newcomer:
+        rejected = await newcomer.post("/api/v1/auth/register-invitation", json={"email":"wrong@example.test", "password":"secure-test-password", "display_name":"Wrong", "token":token})
+        assert rejected.status_code == 403
+        registered = await newcomer.post("/api/v1/auth/register-invitation", json={"email":"new-invitee@example.test", "password":"secure-test-password", "display_name":"New User", "token":token})
+        assert registered.status_code == 201, registered.text
+        assert registered.json()["active_workspace_id"] == owner_org
+        newcomer.headers["x-csrf-token"] = registered.json()["csrf_token"]
+        assert (await newcomer.post("/api/v1/workspaces/invitations/accept", json={"token":token})).status_code == 400
+    with Session(db_session.bind) as db:
+        user = db.query(User).filter_by(email="new-invitee@example.test").one()
+        assert db.query(OrganizationMembership).filter_by(user_id=user.id, organization_id=owner_org).one().role == "MEMBER"
+        assert db.query(Organization).count() == organizations_before
+
+
+@pytest.mark.asyncio
+async def test_invitation_registration_rolls_back_when_session_creation_fails(client, db_session, monkeypatch):
+    from app.routers import auth
+    invitation = await client.post("/api/v1/workspaces/current/invitations", json={"email": "atomic-invitee@example.test"})
+    token = invitation.json()["invitation_url"].split("#")[1]
+    monkeypatch.setattr(auth, "establish_session", lambda *args: (_ for _ in ()).throw(IntegrityError("fail", {}, Exception("fail"))))
+    result = await client.post("/api/v1/auth/register-invitation", json={"email":"atomic-invitee@example.test", "password":"secure-test-password", "display_name":"Atomic", "token":token})
+    assert result.status_code == 409
+    with Session(db_session.bind) as db:
+        assert not db.query(User).filter_by(email="atomic-invitee@example.test").first()
+        assert db.query(OrganizationInvitation).filter_by(token_hash=__import__("app.security", fromlist=["digest"]).digest(token)).one().accepted_at is None
+
+
+@pytest.mark.asyncio
+async def test_invitation_listing_immediate_validity_and_regeneration(client, db_session):
+    created = await client.post("/api/v1/workspaces/current/invitations", json={"email":"fresh-invitee@example.test", "role":"ADMIN"})
+    assert created.status_code == 201
+    token = created.json()["invitation_url"].split("#", 1)[1]
+    preview = await client.post("/api/v1/workspaces/invitations/preview", json={"token": token})
+    assert preview.status_code == 200 and preview.json()["email"] == "fresh-invitee@example.test"
+    listed = await client.get("/api/v1/workspaces/current/invitations")
+    item = next(row for row in listed.json() if row["email"] == "fresh-invitee@example.test")
+    assert item["status"] == "PENDING" and "token_hash" not in item
+    refreshed = await client.post(f"/api/v1/workspaces/current/invitations/{item['id']}/regenerate")
+    assert refreshed.status_code == 201
+    assert (await client.post("/api/v1/workspaces/invitations/preview", json={"token": token})).status_code == 400
+    assert (await client.post("/api/v1/workspaces/invitations/preview", json={"token": refreshed.json()["invitation_url"].split("#", 1)[1]})).status_code == 200

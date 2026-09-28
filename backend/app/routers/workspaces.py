@@ -126,6 +126,42 @@ def invite(payload: InviteInput, identity: Identity = Depends(require_admin), db
     return {"id": invitation.id, "invitation_url": f"{settings.frontend_url.rstrip('/')}/invite#{token}", "expires_at": invitation.expires_at}
 
 
+def invitation_status(invitation, now):
+    if invitation.accepted_at:
+        return "ACCEPTED"
+    return "EXPIRED" if invitation.expires_at <= now else "PENDING"
+
+
+@router.get("/current/invitations")
+def invitations(identity: Identity = Depends(require_admin), db: Session = Depends(get_db)):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rows = db.query(OrganizationInvitation, User).outerjoin(User, OrganizationInvitation.created_by_user_id == User.id).filter(
+        OrganizationInvitation.organization_id == identity.membership.organization_id
+    ).order_by(OrganizationInvitation.id.desc()).all()
+    return [dict(id=invite.id, email=invite.email, role=invite.role, status=invitation_status(invite, now),
+                 created_at=invite.created_at, expires_at=invite.expires_at, accepted_at=invite.accepted_at,
+                 invited_by=user.display_name if user else None) for invite, user in rows]
+
+
+@router.post("/current/invitations/{invitation_id}/regenerate", status_code=201)
+def regenerate_invitation(invitation_id: int, identity: Identity = Depends(require_admin), db: Session = Depends(get_db)):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    old = db.query(OrganizationInvitation).filter_by(id=invitation_id, organization_id=identity.membership.organization_id).first()
+    if not old:
+        raise HTTPException(404, "Invitation not found")
+    if invitation_status(old, now) != "PENDING":
+        raise HTTPException(409, "Only pending invitations can be refreshed")
+    # Expiring the old record preserves audit history while making its secret unusable.
+    old.expires_at = now
+    token = secrets.token_urlsafe(32)
+    replacement = OrganizationInvitation(organization_id=old.organization_id, email=old.email, role=old.role,
+        token_hash=digest(token), expires_at=now + timedelta(days=7), created_by_user_id=identity.user.id)
+    db.add(replacement)
+    audit(db, old.organization_id, identity.user.id, "REGENERATE_INVITE", "invitation", invitation_id)
+    db.commit()
+    return {"id": replacement.id, "invitation_url": f"{settings.frontend_url.rstrip('/')}/invite#{token}", "expires_at": replacement.expires_at}
+
+
 @router.post("/invitations/accept", response_model=SessionRead)
 def accept(payload: AcceptInput, request: Request, identity: Identity = Depends(current_identity), db: Session = Depends(get_db)):
     invitation = db.query(OrganizationInvitation).filter_by(token_hash=digest(payload.token)).first()
@@ -147,6 +183,17 @@ def accept(payload: AcceptInput, request: Request, identity: Identity = Depends(
         db.rollback()
         raise HTTPException(409, "Membership already exists; retry the invitation")
     return session_response(db, identity.user, invitation.organization_id, digest(request.cookies["databridge_session"] + ":csrf"))
+
+
+@router.post("/invitations/preview")
+def invitation_preview(payload: AcceptInput, db: Session = Depends(get_db)):
+    """Return only the details needed to guide a holder of a valid secret link."""
+    invitation = db.query(OrganizationInvitation).filter_by(token_hash=digest(payload.token)).first()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if not invitation or invitation.accepted_at or invitation.expires_at <= now:
+        raise HTTPException(400, "Invitation is invalid or expired")
+    organization = db.get(Organization, invitation.organization_id)
+    return {"email": invitation.email, "workspace_name": organization.name if organization else None}
 
 
 @router.get("/current/audit")

@@ -1,0 +1,9 @@
+{
+  "name": "databridge",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:frontend": "node scripts/dev.mjs --frontend-only",
+    "dev:backend": "node scripts/dev.mjs --backend-only"
+  }
+}

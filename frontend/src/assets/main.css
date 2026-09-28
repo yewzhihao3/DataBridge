@@ -145,19 +145,23 @@ input, select, textarea {
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 1;
   cursor: not-allowed;
   pointer-events: none;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  box-shadow: none;
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent-brand), var(--accent));
+  background: var(--accent);
   color: var(--on-accent);
   box-shadow: 0 2px 8px var(--accent-border);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--accent-hover), var(--accent-brand));
+  background: var(--accent-hover);
   box-shadow: var(--shadow-glow);
   transform: translateY(-1px);
 }

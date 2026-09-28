@@ -1,20 +1,28 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { identityRequest, session } from '@/services/session'
 import { useTheme } from '@/composables/useTheme'
 const route = useRoute(), router = useRouter()
 const registering = computed(() => route.path === '/register')
+const invitationToken = computed(() => route.hash.slice(1))
+const invite = ref<{ email: string; workspace_name: string | null } | null>(null)
 const step = ref(1), busy = ref(false), error = ref('')
 const displayName = ref(''), email = ref(''), password = ref(''), workspaceName = ref('')
 const { theme, mode } = useTheme()
+onMounted(async () => {
+  if (registering.value && invitationToken.value) {
+    try { const preview = await identityRequest<{ email: string; workspace_name: string | null }>('/workspaces/invitations/preview', 'POST', { token: invitationToken.value }); invite.value = preview; email.value = preview.email }
+    catch (e) { error.value = (e as Error).message }
+  }
+})
 async function submit() {
-  if (registering.value && step.value === 1) { step.value = 2; return }
+  if (registering.value && step.value === 1 && !invite.value) { step.value = 2; return }
   busy.value = true; error.value = ''
   try {
-    session.value = await identityRequest(registering.value ? '/auth/register' : '/auth/login', 'POST', {
+    session.value = await identityRequest(registering.value ? (invite.value ? '/auth/register-invitation' : '/auth/register') : '/auth/login', 'POST', {
       email: email.value, password: password.value,
-      ...(registering.value ? { display_name: displayName.value, workspace_name: workspaceName.value } : {}),
+      ...(registering.value ? invite.value ? { display_name: displayName.value, token: invitationToken.value } : { display_name: displayName.value, workspace_name: workspaceName.value } : {}),
     })
     password.value = ''
     await router.replace(route.hash ? `/invite${route.hash}` : '/')
@@ -27,13 +35,13 @@ async function submit() {
   <div class="identity-page">
     <div class="identity-brand">DataBridge <span>Workspace intelligence starts here.</span></div>
     <section class="identity-card">
-      <p class="eyebrow">{{ registering ? `STEP ${step} OF 2` : 'WELCOME BACK' }}</p>
-      <h1>{{ registering ? (step === 1 ? 'Your Account' : 'Your Workspace') : 'Log in to DataBridge' }}</h1>
-      <p class="muted">{{ registering ? 'Bring your team and spreadsheet workflows together.' : 'Continue working with your team’s data.' }}</p>
+      <p class="eyebrow">{{ registering ? (invite ? 'INVITATION SIGNUP' : `STEP ${step} OF 2`) : 'WELCOME BACK' }}</p>
+      <h1>{{ registering ? (invite ? 'Create your account' : step === 1 ? 'Your Account' : 'Your Workspace') : 'Log in to DataBridge' }}</h1>
+      <p class="muted">{{ invite ? `You’ll join ${invite.workspace_name || 'the invited workspace'} after creating your account.` : registering ? 'Bring your team and spreadsheet workflows together.' : 'Continue working with your team’s data.' }}</p>
       <form @submit.prevent="submit">
         <template v-if="!registering || step === 1">
           <label v-if="registering">Display Name<input v-model="displayName" required maxlength="100" autocomplete="name"></label>
-          <label>Email<input v-model="email" required type="email" maxlength="254" autocomplete="email"></label>
+          <label>Email<input v-model="email" required type="email" maxlength="254" autocomplete="email" :readonly="!!invite" :aria-readonly="!!invite"></label>
           <label>Password<input v-model="password" required type="password" :minlength="registering ? 12 : 1" maxlength="128" :autocomplete="registering ? 'new-password' : 'current-password'"></label>
           <small v-if="registering" class="muted">Use at least 12 characters.</small>
         </template>
@@ -42,7 +50,7 @@ async function submit() {
           <small class="muted">Use your company, department, or team name.</small>
         </template>
         <p v-if="error" class="identity-error" role="alert">{{ error }}</p>
-        <button class="btn btn-primary" :disabled="busy">{{ busy ? 'Please wait…' : registering ? (step === 1 ? 'Continue' : 'Create Account') : 'Log In' }}</button>
+        <button class="btn btn-primary" :disabled="busy || (registering && !!invitationToken && !invite)">{{ busy ? 'Please wait…' : registering ? (invite ? 'Create Account & Join Workspace' : step === 1 ? 'Continue' : 'Create Account') : 'Log In' }}</button>
         <button v-if="registering && step === 2" type="button" class="btn btn-secondary" @click="step = 1">Back</button>
       </form>
       <p class="muted">{{ registering ? 'Already have an account?' : 'New to DataBridge?' }} <RouterLink :to="`${registering ? '/login' : '/register'}${route.hash}`">{{ registering ? 'Log in' : 'Create an account' }}</RouterLink></p>

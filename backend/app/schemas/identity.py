@@ -31,6 +31,20 @@ class RegisterInput(EmailInput):
         return value.strip()
 
 
+class InviteRegisterInput(EmailInput):
+    """Registration data for a person holding an invitation token."""
+    display_name: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=12, max_length=128)
+    token: str = Field(min_length=20, max_length=100)
+
+    @field_validator("display_name")
+    @classmethod
+    def nonblank_name(cls, value: str):
+        if not value.strip():
+            raise ValueError("This field cannot be blank")
+        return value.strip()
+
+
 class PasswordInput(BaseModel):
     current_password: str = Field(max_length=128)
     new_password: str = Field(min_length=12, max_length=128)

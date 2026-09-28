@@ -1,11 +1,12 @@
 import re
 import secrets
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models.identity import User, Organization, OrganizationMembership, AuthSession
-from app.schemas.identity import LoginInput, RegisterInput, PasswordInput, NameInput, SessionRead
+from app.models.identity import User, Organization, OrganizationMembership, OrganizationInvitation, AuthSession
+from app.schemas.identity import LoginInput, RegisterInput, InviteRegisterInput, PasswordInput, NameInput, SessionRead
 from app.security import Identity, current_identity, check_origin, digest, establish_session, password_hasher, verify_password, DUMMY_HASH, audit
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
@@ -45,6 +46,42 @@ def register(payload: RegisterInput, request: Request, response: Response, db: S
         db.rollback()
         raise HTTPException(409, "Account could not be created")
     return session_response(db, user, org.id, csrf)
+
+
+@router.post("/register-invitation", response_model=SessionRead, status_code=201)
+def register_invitation(payload: InviteRegisterInput, request: Request, response: Response, db: Session = Depends(get_db)):
+    """Atomically create an invited account and consume its one-time invitation."""
+    check_origin(request)
+    invitation = db.query(OrganizationInvitation).filter_by(token_hash=digest(payload.token)).first()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if not invitation or invitation.accepted_at or invitation.expires_at <= now:
+        raise HTTPException(400, "Invitation is invalid or expired")
+    if invitation.email != payload.email:
+        raise HTTPException(403, "Register with the invited email address")
+    if db.query(User).filter_by(email=payload.email).first():
+        raise HTTPException(409, "An account with this email already exists")
+    user = User(email=payload.email, display_name=payload.display_name, password_hash=password_hasher.hash(payload.password))
+    try:
+        db.add(user)
+        db.flush()
+        claimed = db.query(OrganizationInvitation).filter(
+            OrganizationInvitation.id == invitation.id,
+            OrganizationInvitation.accepted_at.is_(None),
+            OrganizationInvitation.expires_at > now,
+        ).update({OrganizationInvitation.accepted_at: now}, synchronize_session=False)
+        if claimed != 1:
+            raise HTTPException(400, "Invitation is invalid or expired")
+        db.add(OrganizationMembership(user_id=user.id, organization_id=invitation.organization_id, role=invitation.role))
+        csrf = establish_session(db, response, user, invitation.organization_id)
+        audit(db, invitation.organization_id, user.id, "REGISTER_INVITATION")
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Account could not be created")
+    return session_response(db, user, invitation.organization_id, csrf)
 
 
 @router.post("/login", response_model=SessionRead)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api } from '@/services/api'
 import { reviewedTemplateId } from '@/composables/useSuggestionDraft'
 import SmartSuggestionsCard from '@/components/ingestion/SmartSuggestionsCard.vue'
@@ -60,10 +60,12 @@ onMounted(async () => {
 
 const workflowSteps = [
   { number: 1, label: 'Upload' },
-  { number: 2, label: 'Template' },
+  { number: 2, label: 'Process workbook' },
   { number: 3, label: 'Preview' },
   { number: 4, label: 'Confirmation' },
 ]
+const templateChoice = ref<'smart' | 'manual'>('smart')
+function selectSuggestedTemplate(id: number) { selectedTemplateId.value = id; templateChoice.value = 'smart' }
 
 /** Extract company name from preview header fields (if present) */
 const previewCompanyName = computed(() => {
@@ -159,8 +161,8 @@ const overallStatusText = computed(() => {
     />
 
     <!-- Step 2: Template Selection -->
-    <SmartSuggestionsCard v-if="currentStep === 2 && uploadedFile" :file-id="uploadedFile.id" :disabled="isExtracting"
-      @select="selectedTemplateId = $event" />
+    <SmartSuggestionsCard v-if="currentStep === 2 && uploadedFile && templateChoice === 'smart'" :file-id="uploadedFile.id" :disabled="isExtracting"
+      @select="selectSuggestedTemplate" @manual="templateChoice = 'manual'" />
     <TemplateSelectorCard
       v-if="currentStep >= 2 && uploadedFile"
       :templates="templates"
@@ -169,7 +171,9 @@ const overallStatusText = computed(() => {
       :is-loading="isLoadingTemplates"
       :is-extracting="isExtracting"
       :error="templateError || extractError"
+      :compact="templateChoice === 'smart' && currentStep === 2"
       @update:selected-template-id="selectedTemplateId = $event"
+      @change="templateChoice = 'manual'"
       @extract="runExtraction"
     />
 

@@ -10,11 +10,13 @@ const props = defineProps<{
   isLoading: boolean
   isExtracting: boolean
   error: string | null
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'update:selectedTemplateId', id: number): void
   (e: 'extract'): void
+  (e: 'change'): void
 }>()
 
 const selectedTemplate = computed<TemplateSummary | null>(() => {
@@ -75,9 +77,9 @@ function onExtract() {
       </div>
 
       <div class="header-titles">
-        <h2 class="card-title">Select Extraction Template</h2>
+        <h2 class="card-title">{{ compact ? 'Template selected' : 'Choose how to process this workbook' }}</h2>
         <p class="card-subtitle">
-          Choose a template matching your spreadsheet layout
+          {{ compact ? 'Your selected template is ready for preview.' : 'Choose a recommended or saved template for this workbook.' }}
         </p>
       </div>
     </div>
@@ -102,7 +104,7 @@ function onExtract() {
 
     <!-- Template Selection -->
     <div v-else class="template-selector-body">
-      <div class="form-group">
+      <div v-if="!compact" class="form-group">
         <label class="form-label" for="template-select">
           Template Layout
         </label>
@@ -178,6 +180,7 @@ function onExtract() {
 
       <!-- Action Button -->
       <div class="action-row">
+        <button v-if="compact" type="button" class="btn btn-secondary" :disabled="isExtracting" @click="emit('change')">Change</button>
         <button
           type="button"
           class="btn btn-primary btn-extract"

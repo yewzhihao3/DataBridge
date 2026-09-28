@@ -406,6 +406,16 @@ databridge/
 
 ## 10. Installation & Local Setup
 
+### Preferred development startup
+
+From the repository root (after installing the backend and frontend dependencies), run:
+
+```bash
+npm run dev
+```
+
+This starts both services with labeled output. Press `Ctrl+C` to stop them. You can still run the frontend with `npm run dev:frontend` and the backend with `npm run dev:backend` from the root, or use the individual commands below.
+
 ### Prerequisites
 
 * Python 3.11 or higher
