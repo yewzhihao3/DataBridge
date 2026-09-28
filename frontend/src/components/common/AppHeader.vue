@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/services/api'
-import { Database, Download, FileSpreadsheet, History, Layers, TableProperties } from 'lucide-vue-next'
+import { ChartColumn, Database, Download, FileSpreadsheet, History, Layers, TableProperties } from 'lucide-vue-next'
 
 const route = useRoute()
 const backendStatus = ref<'online' | 'offline' | 'checking'>('checking')
@@ -78,6 +78,10 @@ onMounted(async () => {
         >
           <Download :size="18" />
           <span>Export Center</span>
+        </router-link>
+        <router-link to="/dashboard" class="nav-tab" :class="{ active: route.path === '/dashboard' }">
+          <ChartColumn :size="18" />
+          <span>Dashboard</span>
         </router-link>
       </nav>
 
@@ -219,5 +223,11 @@ onMounted(async () => {
 
 .status-label {
   font-weight: 500;
+}
+/* Keep primary destinations reachable as the navigation grows. */
+@media (max-width: 1200px) {
+  .header-content { height: auto; min-height: 4.25rem; flex-wrap: wrap; padding-top: .6rem; padding-bottom: .6rem; gap: .7rem; }
+  .nav-links { order: 3; width: 100%; min-width: 0; overflow-x: auto; }
+  .nav-tab { flex-shrink: 0; }
 }
 </style>

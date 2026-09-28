@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord
+from app.services.business_query import active_record_scope, invoice_filter_conditions
 from app.models.source_file import SourceFile
 from app.schemas.data_explorer import (
     DataExplorerFilterOptions,
@@ -102,7 +103,7 @@ def list_invoices(
     base_query = (
         db.query(InvoiceRecord)
         .join(InvoiceRecord.batch)
-        .filter(ImportBatch.is_deleted == False)  # noqa: E712
+        .filter(active_record_scope())
     )
 
     if search and search.strip():
@@ -114,21 +115,7 @@ def list_invoices(
             )
         )
 
-    if company and company.strip():
-        base_query = base_query.filter(
-            InvoiceRecord.company_name.ilike(f"%{company.strip()}%")
-        )
-
-    if currency and currency.strip():
-        base_query = base_query.filter(
-            InvoiceRecord.currency == currency.strip().upper()
-        )
-
-    if date_from:
-        base_query = base_query.filter(InvoiceRecord.invoice_date >= date_from)
-
-    if date_to:
-        base_query = base_query.filter(InvoiceRecord.invoice_date <= date_to)
+    base_query = base_query.filter(*invoice_filter_conditions(company, currency, date_from, date_to))
 
     if has_line_items is not None:
         if has_line_items:
@@ -148,7 +135,7 @@ def list_invoices(
         .join(InvoiceRecord.batch)
         .outerjoin(ImportBatch.source_file)
         .outerjoin(li_count_subq, InvoiceRecord.id == li_count_subq.c.invoice_id)
-        .filter(ImportBatch.is_deleted == False)  # noqa: E712
+        .filter(active_record_scope())
     )
 
     # Re-apply same filters
@@ -160,18 +147,8 @@ def list_invoices(
                 InvoiceRecord.invoice_number.ilike(search_term),
             )
         )
-    if company and company.strip():
-        data_query = data_query.filter(
-            InvoiceRecord.company_name.ilike(f"%{company.strip()}%")
-        )
-    if currency and currency.strip():
-        data_query = data_query.filter(
-            InvoiceRecord.currency == currency.strip().upper()
-        )
-    if date_from:
-        data_query = data_query.filter(InvoiceRecord.invoice_date >= date_from)
-    if date_to:
-        data_query = data_query.filter(InvoiceRecord.invoice_date <= date_to)
+    data_query = data_query.filter(*invoice_filter_conditions(company, currency, date_from, date_to))
+
     if has_line_items is not None:
         if has_line_items:
             data_query = data_query.filter(InvoiceRecord.line_items.any())
@@ -247,7 +224,7 @@ def get_invoice_detail(
             joinedload(InvoiceRecord.line_items),
         )
         .join(InvoiceRecord.batch)
-        .filter(InvoiceRecord.id == invoice_id, ImportBatch.is_deleted == False)  # noqa: E712
+        .filter(InvoiceRecord.id == invoice_id, active_record_scope())
         .first()
     )
     if not record:
@@ -320,7 +297,7 @@ def update_invoice(
             joinedload(InvoiceRecord.line_items),
         )
         .join(InvoiceRecord.batch)
-        .filter(InvoiceRecord.id == invoice_id, ImportBatch.is_deleted == False)  # noqa: E712
+        .filter(InvoiceRecord.id == invoice_id, active_record_scope())
         .first()
     )
     if not record:
@@ -413,7 +390,7 @@ def list_line_items(
         db.query(InvoiceLineItem)
         .join(InvoiceLineItem.invoice_record)
         .join(InvoiceRecord.batch)
-        .filter(ImportBatch.is_deleted == False)  # noqa: E712
+        .filter(active_record_scope())
     )
 
     if search and search.strip():
@@ -426,21 +403,7 @@ def list_line_items(
             )
         )
 
-    if company and company.strip():
-        base_query = base_query.filter(
-            InvoiceRecord.company_name.ilike(f"%{company.strip()}%")
-        )
-
-    if currency and currency.strip():
-        base_query = base_query.filter(
-            InvoiceRecord.currency == currency.strip().upper()
-        )
-
-    if date_from:
-        base_query = base_query.filter(InvoiceRecord.invoice_date >= date_from)
-
-    if date_to:
-        base_query = base_query.filter(InvoiceRecord.invoice_date <= date_to)
+    base_query = base_query.filter(*invoice_filter_conditions(company, currency, date_from, date_to))
 
     total = base_query.count()
 
@@ -450,7 +413,7 @@ def list_line_items(
         .options(joinedload(InvoiceLineItem.invoice_record))
         .join(InvoiceLineItem.invoice_record)
         .join(InvoiceRecord.batch)
-        .filter(ImportBatch.is_deleted == False)  # noqa: E712
+        .filter(active_record_scope())
     )
 
     # Re-apply same filters
@@ -463,18 +426,7 @@ def list_line_items(
                 InvoiceRecord.invoice_number.ilike(search_term),
             )
         )
-    if company and company.strip():
-        data_query = data_query.filter(
-            InvoiceRecord.company_name.ilike(f"%{company.strip()}%")
-        )
-    if currency and currency.strip():
-        data_query = data_query.filter(
-            InvoiceRecord.currency == currency.strip().upper()
-        )
-    if date_from:
-        data_query = data_query.filter(InvoiceRecord.invoice_date >= date_from)
-    if date_to:
-        data_query = data_query.filter(InvoiceRecord.invoice_date <= date_to)
+    data_query = data_query.filter(*invoice_filter_conditions(company, currency, date_from, date_to))
 
     # Sorting
     sort_col = LINE_ITEM_SORT_FIELDS[sort_by]
@@ -539,7 +491,7 @@ def get_filter_options(
         db.query(InvoiceRecord.company_name)
         .join(InvoiceRecord.batch)
         .filter(
-            ImportBatch.is_deleted == False,  # noqa: E712
+            active_record_scope(),
             InvoiceRecord.company_name.isnot(None),
             InvoiceRecord.company_name != "",
         )
@@ -552,7 +504,7 @@ def get_filter_options(
         db.query(InvoiceRecord.currency)
         .join(InvoiceRecord.batch)
         .filter(
-            ImportBatch.is_deleted == False,  # noqa: E712
+            active_record_scope(),
             InvoiceRecord.currency.isnot(None),
             InvoiceRecord.currency != "",
         )

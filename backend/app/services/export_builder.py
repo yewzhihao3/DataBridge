@@ -24,6 +24,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord
+from app.services.business_query import active_record_scope, invoice_filter_conditions
 from app.models.source_file import SourceFile
 from app.models.template import Template
 
@@ -126,7 +127,7 @@ def build_invoices_export_query(
             joinedload(InvoiceRecord.batch).joinedload(ImportBatch.template),
         )
         .join(InvoiceRecord.batch)
-        .filter(ImportBatch.is_deleted == False)  # noqa: E712
+        .filter(active_record_scope())
     )
 
     if search and search.strip():
@@ -138,17 +139,7 @@ def build_invoices_export_query(
             )
         )
 
-    if company and company.strip():
-        query = query.filter(InvoiceRecord.company_name.ilike(f"%{company.strip()}%"))
-
-    if currency and currency.strip():
-        query = query.filter(InvoiceRecord.currency == currency.strip().upper())
-
-    if date_from:
-        query = query.filter(InvoiceRecord.invoice_date >= date_from)
-
-    if date_to:
-        query = query.filter(InvoiceRecord.invoice_date <= date_to)
+    query = query.filter(*invoice_filter_conditions(company, currency, date_from, date_to))
 
     if has_line_items is not None:
         if has_line_items:
@@ -177,7 +168,7 @@ def build_line_items_export_query(
         )
         .join(InvoiceLineItem.invoice_record)
         .join(InvoiceRecord.batch)
-        .filter(ImportBatch.is_deleted == False)  # noqa: E712
+        .filter(active_record_scope())
     )
 
     if search and search.strip():
@@ -190,17 +181,7 @@ def build_line_items_export_query(
             )
         )
 
-    if company and company.strip():
-        query = query.filter(InvoiceRecord.company_name.ilike(f"%{company.strip()}%"))
-
-    if currency and currency.strip():
-        query = query.filter(InvoiceRecord.currency == currency.strip().upper())
-
-    if date_from:
-        query = query.filter(InvoiceRecord.invoice_date >= date_from)
-
-    if date_to:
-        query = query.filter(InvoiceRecord.invoice_date <= date_to)
+    query = query.filter(*invoice_filter_conditions(company, currency, date_from, date_to))
 
     return query.order_by(
         InvoiceRecord.invoice_date.desc().nulls_last(),

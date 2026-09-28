@@ -360,3 +360,45 @@ export interface ExportFilterParams {
   date_to?: string
   has_line_items?: boolean
 }
+
+// Analytics keeps authoritative Decimal values as strings.
+export interface DashboardFilters {
+  currency?: string | null
+  date_from?: string | null
+  date_to?: string | null
+  company?: string | null
+}
+
+export interface AnalyticsFilterOptions {
+  currencies: string[]
+  has_unspecified_currency: boolean
+  companies: string[]
+  date_from: string | null
+  date_to: string | null
+}
+
+export interface AnalyticsPeriod {
+  period: string
+  invoice_count: number
+  invoices_with_total: number
+  invoice_value: string | null
+}
+
+export interface DashboardResponse {
+  filters: DashboardFilters
+  monetary_values_available: boolean
+  grouping: 'month'
+  summary: {
+    invoice_count: number
+    invoices_with_total: number
+    invoices_without_total: number
+    invoices_without_date: number
+    total_invoice_value: string | null
+    average_invoice_value: string | null
+    line_item_count: number
+    line_items_with_amount: number
+  }
+  invoice_value_over_time: AnalyticsPeriod[]
+  company_values: { company_name: string | null; invoice_count: number; invoices_with_total: number; invoice_value: string }[]
+  line_item_values: { description: string | null; line_item_count: number; line_items_with_amount: number; amount: string }[]
+}

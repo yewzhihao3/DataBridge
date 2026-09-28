@@ -1,5 +1,9 @@
 # DataBridge
 
+Milestone 10 — Dashboard & Analytics is implemented and verified. See
+[M10 behavior, API, verification, and limitations](docs/milestone-10.md).
+Milestone 11 has not started.
+
 **Configurable Business Data Ingestion & Validation Platform**
 
 DataBridge is a backend data ingestion and validation service designed to solve a common operational challenge: importing business data from inconsistent, custom-formatted Excel spreadsheets into clean, validated, and structured formats.

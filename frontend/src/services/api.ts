@@ -5,6 +5,9 @@
 
 import type {
   ApiError,
+  AnalyticsFilterOptions,
+  DashboardResponse,
+  DashboardFilters,
   DataExplorerFilterOptions,
   ExportFilterParams,
   ExportSummaryResponse,
@@ -94,6 +97,17 @@ async function request<T>(
 }
 
 export const api = {
+  async getAnalyticsFilterOptions(): Promise<AnalyticsFilterOptions> {
+    return request<AnalyticsFilterOptions>('/analytics/filter-options')
+  },
+  async getDashboard(filters: DashboardFilters): Promise<DashboardResponse> {
+    const params = new URLSearchParams()
+    if (filters.currency) params.set('currency', filters.currency)
+    if (filters.date_from) params.set('date_from', filters.date_from)
+    if (filters.date_to) params.set('date_to', filters.date_to)
+    if (filters.company) params.set('company', filters.company)
+    return request<DashboardResponse>(`/analytics/dashboard?${params.toString()}`)
+  },
   // ── Health Check ──────────────────────────────────────────────
 
   async checkHealth(): Promise<{
