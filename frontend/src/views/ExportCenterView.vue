@@ -675,7 +675,7 @@ watch(selectedDataset, () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  border: 1px solid var(--accent-border);
 }
 
 .section-title {
@@ -722,8 +722,8 @@ watch(selectedDataset, () => {
 
 .dataset-card.active {
   border-color: var(--accent-brand);
-  background: rgba(99, 102, 241, 0.08);
-  box-shadow: 0 0 12px rgba(99, 102, 241, 0.15);
+  background: var(--accent-soft);
+  box-shadow: 0 0 12px var(--accent-soft);
 }
 
 .dataset-card-header {
@@ -884,7 +884,7 @@ watch(selectedDataset, () => {
 
 .format-card.active {
   border-color: var(--accent-brand);
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--accent-soft);
 }
 
 .format-header {
@@ -923,11 +923,11 @@ watch(selectedDataset, () => {
 }
 
 .text-excel {
-  color: #10b981;
+  color: var(--success);
 }
 
 .text-csv {
-  color: #38bdf8;
+  color: var(--info);
 }
 
 /* Sticky Summary Card */
@@ -1081,7 +1081,7 @@ watch(selectedDataset, () => {
   justify-content: center;
   gap: 0.5rem;
   background: var(--accent-brand);
-  color: #ffffff;
+  color: var(--on-accent);
   border: none;
   padding: 0.75rem 1.25rem;
   border-radius: var(--radius-sm);
@@ -1089,12 +1089,12 @@ watch(selectedDataset, () => {
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-fast);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 12px var(--accent-border);
 }
 
 .btn-export-primary:hover:not(:disabled) {
   opacity: 0.92;
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 6px 16px var(--accent-border);
 }
 
 .btn-export-primary:disabled {
@@ -1122,14 +1122,14 @@ watch(selectedDataset, () => {
 }
 
 .zen-alert-error {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--status-error-bg);
+  border: 1px solid var(--status-error-border);
   color: var(--status-error);
 }
 
 .zen-alert-success {
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: var(--status-success-bg);
+  border: 1px solid var(--status-success-border);
   color: var(--status-success);
 }
 

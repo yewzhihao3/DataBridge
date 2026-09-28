@@ -1914,8 +1914,8 @@ watch(activeTab, (tab) => {
 }
 
 .zen-alert-error {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--status-error-bg);
+  border: 1px solid var(--status-error-border);
   color: var(--status-error);
 }
 
@@ -1969,7 +1969,7 @@ watch(activeTab, (tab) => {
   align-items: center;
   gap: 0.4rem;
   background: var(--accent-brand);
-  color: #ffffff;
+  color: var(--on-accent);
   border: none;
   padding: 0.5rem 1rem;
   border-radius: var(--radius-sm);

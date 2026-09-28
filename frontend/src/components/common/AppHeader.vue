@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useTheme } from '@/composables/useTheme'
 import { useRoute } from 'vue-router'
 import { api } from '@/services/api'
 import { ChartColumn, Database, Download, FileSpreadsheet, History, Layers, TableProperties } from 'lucide-vue-next'
 
 const route = useRoute()
+const { theme, mode } = useTheme()
+const appearance = ref<HTMLDetailsElement | null>(null)
 const backendStatus = ref<'online' | 'offline' | 'checking'>('checking')
 const appVersion = ref<string>('')
 
@@ -34,14 +37,14 @@ onMounted(async () => {
       </router-link>
 
       <!-- Navigation Tabs -->
-      <nav class="nav-links">
+      <nav class="nav-links" aria-label="Main navigation">
         <router-link
           to="/"
           class="nav-tab"
           :class="{ active: route.path === '/' }"
         >
           <FileSpreadsheet :size="18" />
-          <span>Ingestion Studio</span>
+          <span>Ingest</span>
         </router-link>
 
         <router-link
@@ -59,7 +62,7 @@ onMounted(async () => {
           :class="{ active: route.path === '/history' }"
         >
           <History :size="18" />
-          <span>Import History</span>
+          <span>History</span>
         </router-link>
 
         <router-link
@@ -68,7 +71,7 @@ onMounted(async () => {
           :class="{ active: route.path.startsWith('/explorer') }"
         >
           <TableProperties :size="18" />
-          <span>Data Explorer</span>
+          <span>Explorer</span>
         </router-link>
 
         <router-link
@@ -77,7 +80,7 @@ onMounted(async () => {
           :class="{ active: route.path.startsWith('/exports') }"
         >
           <Download :size="18" />
-          <span>Export Center</span>
+          <span>Export</span>
         </router-link>
         <router-link to="/dashboard" class="nav-tab" :class="{ active: route.path === '/dashboard' }">
           <ChartColumn :size="18" />
@@ -86,6 +89,19 @@ onMounted(async () => {
       </nav>
 
       <!-- System Health Indicator -->
+      <details ref="appearance" class="appearance" @keydown.esc="appearance?.removeAttribute('open')">
+        <summary>Appearance</summary>
+        <div class="appearance-panel">
+          <label for="theme-family">Theme</label>
+          <select id="theme-family" v-model="theme" class="custom-select">
+            <option value="orange">Orange</option><option value="blue">Blue</option><option value="emerald">Emerald</option>
+          </select>
+          <label for="appearance-mode">Mode</label>
+          <select id="appearance-mode" v-model="mode" class="custom-select">
+            <option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option>
+          </select>
+        </div>
+      </details>
       <div class="system-status">
         <div
           class="status-dot"
@@ -102,7 +118,7 @@ onMounted(async () => {
 
 <style scoped>
 .app-header {
-  background: rgba(17, 24, 39, 0.85);
+  background: var(--bg-surface);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border-subtle);
   position: sticky;
@@ -114,6 +130,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: .8rem;
   height: 4.25rem;
 }
 
@@ -128,7 +145,7 @@ onMounted(async () => {
   height: 2.5rem;
   border-radius: var(--radius-md);
   background: var(--accent-brand-subtle);
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  border: 1px solid var(--accent-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -183,9 +200,11 @@ onMounted(async () => {
 }
 
 .nav-tab.active {
-  color: var(--text-primary);
-  background: var(--bg-card);
-  border: 1px solid var(--border-medium);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  text-decoration: underline;
+  text-underline-offset: .35em;
   box-shadow: var(--shadow-sm);
 }
 
@@ -209,12 +228,10 @@ onMounted(async () => {
 
 .status-dot.online {
   background-color: var(--status-success);
-  box-shadow: 0 0 8px var(--status-success);
 }
 
 .status-dot.offline {
   background-color: var(--status-error);
-  box-shadow: 0 0 8px var(--status-error);
 }
 
 .status-dot.checking {
@@ -224,6 +241,12 @@ onMounted(async () => {
 .status-label {
   font-weight: 500;
 }
+.appearance { position: relative; flex-shrink: 0; font-size: .8rem; }
+.appearance summary { cursor: pointer; padding: .55rem; border: 1px solid var(--border-default); border-radius: var(--radius-sm); }
+.appearance-panel { position: absolute; right: 0; top: calc(100% + .6rem); width: 210px; padding: 1rem; display: grid; gap: .5rem; border: 1px solid var(--border-default); background: var(--bg-surface); border-radius: var(--radius-md); box-shadow: var(--shadow); z-index: 60; }
+.appearance-panel select { width: 100%; padding: .5rem; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); }
+.nav-tab { white-space: nowrap; border: 1px solid transparent; padding-inline: .65rem; }
+@media (max-width: 1450px) { .system-status { display: none; } }
 /* Keep primary destinations reachable as the navigation grows. */
 @media (max-width: 1200px) {
   .header-content { height: auto; min-height: 4.25rem; flex-wrap: wrap; padding-top: .6rem; padding-bottom: .6rem; gap: .7rem; }

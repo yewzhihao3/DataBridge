@@ -1,0 +1,86 @@
+:root {
+  color-scheme: dark;
+  --radius-xs: 4px;
+  --bg-app: #0b0f14;
+  --bg-surface: #131923;
+  --bg-elevated: #1a2230;
+  --border-default: #344154;
+  --border-strong: #52617a;
+  --text-primary: #f8fafc;
+  --text-secondary: #a6b3c6;
+  --text-muted: #93a1b5;
+  --accent: #fb923c;
+  --accent-hover: #fdba74;
+  --on-accent: #16100a;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+  --info: #38bdf8;
+  --shadow: 0 6px 24px rgb(0 0 0 / 25%);
+  --overlay: rgb(0 0 0 / 65%);
+}
+:root[data-mode="light"] {
+  color-scheme: light;
+  --bg-app: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f1f5f9;
+  --border-default: #cbd5e1;
+  --border-strong: #94a3b8;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #596a80;
+  --accent: #c2410c;
+  --accent-hover: #9a3412;
+  --on-accent: #ffffff;
+  --success: #047857;
+  --warning: #92400e;
+  --danger: #be123c;
+  --info: #0369a1;
+  --shadow: 0 6px 24px rgb(15 23 42 / 10%);
+}
+:root[data-theme="blue"] { --accent: #60a5fa; --accent-hover: #93c5fd; }
+:root[data-theme="emerald"] { --accent: #34d399; --accent-hover: #6ee7b7; }
+:root[data-theme="blue"][data-mode="light"] { --accent: #1d4ed8; --accent-hover: #1e40af; }
+:root[data-theme="emerald"][data-mode="light"] { --accent: #047857; --accent-hover: #065f46; }
+:root {
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --focus-ring: var(--accent);
+  --accent-border: color-mix(in srgb, var(--accent) 45%, var(--border-default));
+  /* Compatibility aliases keep established components on semantic tokens. */
+  --bg-card: var(--bg-surface);
+  --bg-card-hover: var(--bg-elevated);
+  --bg-subtle: var(--bg-elevated);
+  --bg-input: var(--bg-app);
+  --border-subtle: var(--border-default);
+  --border-medium: var(--border-strong);
+  --border-focus: var(--focus-ring);
+  --text-inverse: var(--bg-app);
+  --accent-brand: var(--accent);
+  --accent-brand-hover: var(--accent-hover);
+  --accent-brand-subtle: var(--accent-soft);
+  --accent-subtle: var(--accent-soft);
+  --accent-cyan: var(--info);
+  --accent-cyan-subtle: color-mix(in srgb, var(--info) 12%, transparent);
+  --status-success: var(--success);
+  --status-warning: var(--warning);
+  --status-error: var(--danger);
+  --status-info: var(--info);
+  --status-success-bg: color-mix(in srgb, var(--success) 10%, transparent);
+  --status-success-border: color-mix(in srgb, var(--success) 35%, transparent);
+  --status-warning-bg: color-mix(in srgb, var(--warning) 10%, transparent);
+  --status-warning-border: color-mix(in srgb, var(--warning) 35%, transparent);
+  --status-error-bg: color-mix(in srgb, var(--danger) 10%, transparent);
+  --status-error-border: color-mix(in srgb, var(--danger) 35%, transparent);
+  --status-info-bg: color-mix(in srgb, var(--info) 10%, transparent);
+  --status-info-border: color-mix(in srgb, var(--info) 35%, transparent);
+  --shadow-sm: var(--shadow);
+  --shadow-md: var(--shadow);
+  --shadow-lg: var(--shadow);
+  --shadow-glow: none;
+  --shadow-cyan-glow: none;
+}
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+select, input, textarea { color-scheme: inherit; }
+.btn-primary { background: var(--accent); color: var(--on-accent); box-shadow: none; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }

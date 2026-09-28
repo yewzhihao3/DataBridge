@@ -582,7 +582,7 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
-  background: rgba(10, 14, 23, 0.75);
+  background: var(--overlay);
   backdrop-filter: blur(8px);
   animation: fadeIn 0.2s ease-out;
 }
@@ -598,10 +598,10 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-surface, #141b2d);
-  border: 1px solid var(--border-default, rgba(255, 255, 255, 0.1));
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg, 12px);
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 24px 48px var(--bg-elevated);
   overflow: hidden;
   animation: scaleIn 0.2s ease-out;
 }
@@ -631,7 +631,7 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  color: var(--accent-brand, #6366f1);
+  color: var(--accent-brand);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -640,7 +640,7 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 
 .zen-filename {
   margin: 0;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
   font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -648,7 +648,7 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 }
 
 .zen-timestamp {
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   font-size: 0.82rem;
 }
 
@@ -662,12 +662,12 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 }
 
 .zen-meta-chip {
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .zen-meta-dot {
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted);
   font-size: 0.7rem;
 }
 
@@ -679,24 +679,24 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   font-size: 0.73rem;
   font-weight: 600;
   text-transform: capitalize;
-  background: var(--bg-subtle, rgba(255, 255, 255, 0.05));
-  color: var(--text-secondary, #cbd5e1);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
 }
 
 .status--imported,
 .status--success,
 .status--completed {
-  background: rgba(16, 185, 129, 0.1);
-  color: #34d399;
-  border-color: rgba(16, 185, 129, 0.2);
+  background: var(--status-success-bg);
+  color: var(--success);
+  border-color: var(--status-success-border);
 }
 
 .status--failed,
 .status--error {
-  background: rgba(239, 68, 68, 0.1);
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.2);
+  background: var(--status-error-bg);
+  color: var(--danger);
+  border-color: var(--status-error-border);
 }
 
 .zen-warning-chip {
@@ -707,9 +707,9 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   border-radius: var(--radius-full, 9999px);
   font-size: 0.73rem;
   font-weight: 600;
-  background: rgba(245, 158, 11, 0.12);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  background: var(--status-warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--status-warning-border);
 }
 
 .zen-close-btn {
@@ -720,28 +720,28 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   height: 2rem;
   border: none;
   background: transparent;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   border-radius: var(--radius-md, 6px);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .zen-close-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary, #f8fafc);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
 /* ── Dividers ─────────────────────────────────────────────────────── */
 
 .zen-separator {
   height: 1px;
-  background: var(--border-subtle, rgba(255, 255, 255, 0.08));
+  background: var(--border-subtle);
   width: 100%;
 }
 
 .zen-separator--subtle {
   height: 1px;
-  background: var(--border-subtle, rgba(255, 255, 255, 0.05));
+  background: var(--border-subtle);
   margin: 0.6rem 0 1rem;
 }
 
@@ -768,8 +768,8 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   flex-direction: column;
   gap: 1.25rem;
   padding: 1.25rem 1.5rem;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md, 8px);
 }
 
@@ -784,23 +784,23 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   margin: 0;
   font-size: 1.15rem;
   font-weight: 700;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
   letter-spacing: -0.01em;
 }
 
 .zen-invoice-number {
   margin-top: 0.2rem;
   font-size: 0.88rem;
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .zen-worksheet-tag {
   margin-left: 0.4rem;
   padding: 0.1rem 0.4rem;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-elevated);
   border-radius: var(--radius-sm, 4px);
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   font-size: 0.75rem;
   font-family: var(--font-mono, monospace);
 }
@@ -810,7 +810,7 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 .zen-block-title {
   font-size: 0.8rem;
   font-weight: 700;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   display: flex;
@@ -846,11 +846,11 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 }
 
 .zen-label {
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
 }
 
 .zen-value {
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
   font-weight: 500;
 }
 
@@ -864,11 +864,11 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 }
 
 .zen-money-label {
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--text-secondary);
 }
 
 .zen-money-value {
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -876,18 +876,18 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 .zen-money-row--total {
   margin-top: 0.4rem;
   padding-top: 0.5rem;
-  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-top: 1px solid var(--border-subtle);
 }
 
 .zen-money-row--total .zen-money-label {
   font-weight: 700;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
 }
 
 .zen-money-row--total .zen-money-value {
   font-size: 1.05rem;
   font-weight: 700;
-  color: var(--accent-brand, #6366f1);
+  color: var(--accent-brand);
 }
 
 /* ── Line Items Block ─────────────────────────────────────────────── */
@@ -902,14 +902,14 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   font-size: 0.75rem;
   padding: 0.1rem 0.5rem;
   border-radius: var(--radius-full, 9999px);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-muted, #94a3b8);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
   font-weight: 500;
 }
 
 .line-items-table-wrapper {
   overflow-x: auto;
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md, 6px);
 }
 
@@ -920,14 +920,14 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 }
 
 .zen-business-table th {
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text-muted, #94a3b8);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
   font-weight: 600;
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 0.65rem 1rem;
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  border-bottom: 1px solid var(--border-subtle);
   text-align: left;
 }
 
@@ -937,8 +937,8 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 
 .zen-business-table td {
   padding: 0.7rem 1rem;
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.04));
-  color: var(--text-primary, #f8fafc);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
 }
 
 .zen-business-table td.col-numeric {
@@ -958,10 +958,10 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  background: rgba(16, 185, 129, 0.05);
-  border: 1px solid rgba(16, 185, 129, 0.15);
+  background: var(--status-success-bg);
+  border: 1px solid var(--status-success-bg);
   border-radius: var(--radius-md, 6px);
-  color: #34d399;
+  color: var(--success);
   font-size: 0.85rem;
   font-weight: 500;
 }
@@ -985,19 +985,19 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   gap: 1rem;
   padding: 0.75rem 1rem;
   border-radius: var(--radius-md, 6px);
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
   font-size: 0.85rem;
 }
 
 .issue-card--warning {
-  border-color: rgba(245, 158, 11, 0.25);
-  background: rgba(245, 158, 11, 0.03);
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
 }
 
 .issue-card--error {
-  border-color: rgba(239, 68, 68, 0.25);
-  background: rgba(239, 68, 68, 0.03);
+  border-color: var(--status-error-border);
+  background: var(--status-error-bg);
 }
 
 .issue-main {
@@ -1007,17 +1007,17 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 }
 
 .issue-rule {
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
   font-size: 0.8rem;
 }
 
 .issue-msg {
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--text-secondary);
 }
 
 .issue-ref {
   font-size: 0.75rem;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
 }
 
 .issue-severity-pill {
@@ -1029,18 +1029,18 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 }
 
 .pill--warning {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
+  background: var(--status-warning-bg);
+  color: var(--warning);
 }
 
 .pill--error {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
+  background: var(--status-error-bg);
+  color: var(--danger);
 }
 
 .pill--info {
-  background: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* ── Technical Disclosure ─────────────────────────────────────────── */
@@ -1051,7 +1051,7 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   gap: 0.4rem;
   background: transparent;
   border: none;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
@@ -1060,14 +1060,14 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 }
 
 .disclosure-toggle:hover {
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--text-secondary);
 }
 
 .technical-panel {
   margin-top: 0.75rem;
   padding: 1rem;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md, 6px);
   display: flex;
   flex-direction: column;
@@ -1080,7 +1080,7 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   gap: 0.4rem;
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   text-transform: uppercase;
 }
 
@@ -1104,11 +1104,11 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 }
 
 .raw-key {
-  color: var(--text-muted, #64748b);
+  color: var(--text-muted);
 }
 
 .raw-val {
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--text-secondary);
 }
 
 /* ── Inline Edit Form ─────────────────────────────────────────────── */
@@ -1124,12 +1124,12 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
 }
 
 .muted-text {
   font-size: 0.8rem;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
 }
 
 .edit-form-grid {
@@ -1147,23 +1147,23 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 .form-group span {
   font-size: 0.78rem;
   font-weight: 600;
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--text-secondary);
 }
 
 .zen-input {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--border-default, rgba(255, 255, 255, 0.12));
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md, 6px);
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
   font-size: 0.85rem;
   transition: border-color 0.15s ease;
 }
 
 .zen-input:focus {
   outline: none;
-  border-color: var(--accent-brand, #6366f1);
+  border-color: var(--accent-brand);
 }
 
 .edit-form-actions {
@@ -1184,9 +1184,9 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
 }
 
 .zen-notice--error {
-  background: rgba(239, 68, 68, 0.1);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: var(--status-error-bg);
+  color: var(--danger);
+  border: 1px solid var(--status-error-border);
 }
 
 /* ── Modal Footer ─────────────────────────────────────────────────── */
@@ -1196,7 +1196,7 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
 }
 </style>

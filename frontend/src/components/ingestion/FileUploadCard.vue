@@ -72,11 +72,16 @@ function formatBytes(bytes: number): string {
     <div
       v-if="!uploadedFile"
       class="dropzone"
+      role="button"
+      tabindex="0"
+      aria-label="Upload Excel workbook"
       :class="{ dragging: isDragging, loading: isUploading }"
       @dragover="onDragOver"
       @dragleave="onDragLeave"
       @drop="onDrop"
       @click="fileInput?.click()"
+      @keydown.enter.prevent="fileInput?.click()"
+      @keydown.space.prevent="fileInput?.click()"
     >
       <input
         ref="fileInput"
@@ -194,7 +199,7 @@ function formatBytes(bytes: number): string {
   padding: 2.5rem 1.5rem;
   text-align: center;
   cursor: pointer;
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--bg-surface);
   transition: all var(--transition-fast);
 }
 

@@ -16,7 +16,12 @@ import type {
   TemplateSummary,
 } from '@/types/api'
 
+let workflow: ReturnType<typeof createImportWorkflow> | undefined
 export function useImportWorkflow() {
+  return workflow ??= createImportWorkflow()
+}
+
+function createImportWorkflow() {
   // ── Step State ────────────────────────────────────────────────
 
   const currentStep = ref<1 | 2 | 3 | 4>(1)

@@ -511,7 +511,7 @@ function handleKeydown(e: KeyboardEvent) {
 .zen-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(10, 15, 29, 0.75);
+  background: var(--overlay);
   backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
@@ -723,8 +723,8 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .highlight-card {
-  background: rgba(99, 102, 241, 0.08);
-  border-color: rgba(99, 102, 241, 0.25);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
 }
 
 .total-value {
@@ -874,7 +874,7 @@ function handleKeydown(e: KeyboardEvent) {
   align-items: center;
   gap: 0.4rem;
   background: var(--accent-brand);
-  color: #ffffff;
+  color: var(--on-accent);
   border: none;
   padding: 0.45rem 0.9rem;
   border-radius: var(--radius-sm);

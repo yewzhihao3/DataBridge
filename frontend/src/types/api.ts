@@ -3,6 +3,28 @@
  */
 
 // ── File & Inspection Types ──────────────────────────────────────────────────
+export type Confidence = 'high' | 'medium' | 'low'
+export interface MappingSuggestion extends TemplateFieldMapping {
+  confidence: Confidence
+  reason: string
+}
+export interface WorkbookAnalysis {
+  file_id: number
+  suggested_worksheet: string
+  selected_worksheet: string
+  review_required: true
+  profiles: { name: string; is_hidden: boolean; truncated: boolean; non_empty_count: number; used_range: string }[]
+  analysis: {
+    worksheet: string
+    suggested_template_type: 'invoice' | 'dataset' | null
+    confidence: Confidence
+    reasons: string[]
+    mappings: MappingSuggestion[]
+    table: { header_row: number; data_start_row: number; data_end_row: number; confidence: Confidence; columns: MappingSuggestion[] } | null
+  }
+  template_matches: { template_id: number; name: string; confidence: Confidence; reasons: string[] }[]
+  warnings: string[]
+}
 
 export interface WorksheetInfo {
   name: string

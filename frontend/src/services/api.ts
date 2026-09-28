@@ -4,6 +4,7 @@
  */
 
 import type {
+  WorkbookAnalysis,
   ApiError,
   AnalyticsFilterOptions,
   DashboardResponse,
@@ -97,6 +98,9 @@ async function request<T>(
 }
 
 export const api = {
+  async analyzeWorkbook(file_id: number, worksheet?: string): Promise<WorkbookAnalysis> {
+    return request('/suggestions/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_id, worksheet }) })
+  },
   async getAnalyticsFilterOptions(): Promise<AnalyticsFilterOptions> {
     return request<AnalyticsFilterOptions>('/analytics/filter-options')
   },

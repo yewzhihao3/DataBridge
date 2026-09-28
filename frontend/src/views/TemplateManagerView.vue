@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { suggestionDraft, reviewedTemplateId } from '@/composables/useSuggestionDraft'
 import { api } from '@/services/api'
 import type {
   TemplateCreate,
@@ -9,6 +11,9 @@ import type {
 } from '@/types/api'
 
 const templates = ref<TemplateSummary[]>([])
+const route = useRoute()
+const router = useRouter()
+const reviewingSuggestions = ref(false)
 const canonicalFields = ref<string[]>([])
 const canonicalLineItemFields = ref<string[]>([])
 const loading = ref(false)
@@ -36,6 +41,7 @@ const form = reactive({
 })
 
 const resetForm = () => {
+  reviewingSuggestions.value = false
   form.name = ''
   form.description = ''
   form.file_type = 'xlsx'
@@ -376,7 +382,13 @@ const saveTemplate = async () => {
       await api.updateTemplate(editingTemplateId.value, payload)
       successMessage.value = 'Template updated successfully.'
     } else {
-      await api.createTemplate(payload)
+      const created = await api.createTemplate(payload)
+      if (reviewingSuggestions.value) {
+        reviewedTemplateId.value = created.id
+        suggestionDraft.value = null
+        await router.push('/')
+        return
+      }
       successMessage.value = 'Template created successfully.'
     }
 
@@ -419,11 +431,25 @@ const formatDate = (dateString: string) => {
 
 onMounted(async () => {
   await Promise.all([loadTemplates(), loadCanonicalFields()])
+  if (route.query.review === 'suggestions' && suggestionDraft.value) {
+    const draft = suggestionDraft.value
+    openCreateForm()
+    reviewingSuggestions.value = true
+    templateType.value = draft.template_type ?? 'invoice'
+    form.worksheet = draft.worksheet
+    form.header_row = draft.header_row ?? null
+    form.data_start_row = draft.data_start_row ?? null
+    form.header_mappings = draft.field_mappings.filter(m => m.mapping_group !== 'line_item').map(m => ({ ...m }))
+    form.line_item_mappings = draft.field_mappings.filter(m => m.mapping_group === 'line_item').map(m => ({ ...m }))
+    form.header_mappings.forEach((m, i) => { customHeaderTargetActive[i] = !isCanonicalHeaderOrEmpty(m.target_field) })
+    form.line_item_mappings.forEach((m, i) => { customLineItemTargetActive[i] = !isCanonicalLineItemOrEmpty(m.target_field) })
+  }
 })
 </script>
 
 <template>
   <section class="template-manager container">
+    <p v-if="reviewingSuggestions" role="status">Review the suggested locations and field types, remove unwanted custom fields, and name your template. Saving returns you to the uploaded workbook for extraction preview.</p>
     <!-- Page Header -->
     <div class="page-header">
       <div>
@@ -1100,13 +1126,13 @@ onMounted(async () => {
 
 .message-error {
   border-color: var(--status-error);
-  background: rgba(239, 68, 68, 0.08);
+  background: var(--status-error-bg);
   color: var(--status-error);
 }
 
 .message-success {
   border-color: var(--status-success);
-  background: rgba(34, 197, 94, 0.08);
+  background: var(--status-success-bg);
   color: var(--status-success);
 }
 
@@ -1177,26 +1203,26 @@ onMounted(async () => {
   align-items: center;
   gap: 14px;
   padding: 16px 20px;
-  border: 1px solid var(--border-medium, #475569);
+  border: 1px solid var(--border-medium);
   border-radius: var(--radius-md, 8px);
-  background: var(--bg-subtle, rgba(30, 41, 59, 0.5));
-  color: var(--text-secondary, #94a3b8);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
   cursor: pointer;
   text-align: left;
   transition: all 0.2s ease;
 }
 
 .mode-tab:hover {
-  border-color: var(--accent-brand, #6366f1);
-  background: rgba(99, 102, 241, 0.08);
-  color: var(--text-primary, #f8fafc);
+  border-color: var(--accent-brand);
+  background: var(--accent-soft);
+  color: var(--text-primary);
 }
 
 .mode-tab.active {
-  border-color: var(--accent-brand, #6366f1);
-  background: rgba(99, 102, 241, 0.14);
-  color: var(--text-primary, #f8fafc);
-  box-shadow: 0 0 0 1px var(--accent-brand, #6366f1);
+  border-color: var(--accent-brand);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--accent-brand);
 }
 
 .tab-icon {
@@ -1211,21 +1237,21 @@ onMounted(async () => {
 }
 
 .tab-title {
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 650;
 }
 
 .tab-sub {
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
 .mode-banner {
   padding: 20px;
-  border: 1px solid var(--border-default, rgba(255, 255, 255, 0.1));
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md, 8px);
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--bg-surface);
 }
 
 .mode-title-row {
@@ -1236,14 +1262,14 @@ onMounted(async () => {
 
 .mode-title-row h4 {
   margin: 0;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
   font-size: 15px;
   font-weight: 700;
 }
 
 .mode-description {
   margin: 6px 0 0;
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -1251,7 +1277,7 @@ onMounted(async () => {
 .spreadsheet-options {
   margin-top: 18px;
   padding-top: 16px;
-  border-top: 1px solid var(--border-default, rgba(255, 255, 255, 0.08));
+  border-top: 1px solid var(--border-default);
 }
 
 .form-field {
@@ -1265,7 +1291,7 @@ onMounted(async () => {
 }
 
 .form-field span {
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -1276,19 +1302,19 @@ onMounted(async () => {
 .form-field textarea {
   width: 100%;
   padding: 11px 14px;
-  border: 1px solid var(--border-medium, rgba(255, 255, 255, 0.18));
+  border: 1px solid var(--border-medium);
   border-radius: var(--radius-md, 8px);
-  background: linear-gradient(180deg, #0e1726 0%, #0a0f1d 100%);
-  color: var(--text-primary, #f8fafc);
+  background: linear-gradient(180deg, var(--bg-input) 0%, var(--bg-input) 100%);
+  color: var(--text-primary);
   font-size: 13.5px;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 1px 2px var(--bg-elevated);
   transition: all 0.2s ease;
 }
 
 .form-field input::placeholder,
 .form-field textarea::placeholder {
-  color: #64748b;
-  opacity: 0.8;
+  color: var(--text-muted);
+  opacity: 1;
 }
 
 .form-field select {
@@ -1300,24 +1326,24 @@ onMounted(async () => {
 }
 
 .form-field select option {
-  background: #0f172a;
-  color: #f8fafc;
+  background: var(--bg-input);
+  color: var(--text-primary);
 }
 
 .form-field input:hover,
 .form-field select:hover,
 .form-field textarea:hover {
-  border-color: rgba(99, 102, 241, 0.5);
-  background: linear-gradient(180deg, #111c30 0%, #0c1322 100%);
+  border-color: var(--accent-border);
+  background: linear-gradient(180deg, var(--bg-input) 0%, var(--bg-input) 100%);
 }
 
 .form-field input:focus,
 .form-field select:focus,
 .form-field textarea:focus {
   outline: none;
-  border-color: var(--accent-brand, #6366f1);
-  background: linear-gradient(180deg, #111c30 0%, #0c1322 100%);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25), inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  border-color: var(--accent-brand);
+  background: linear-gradient(180deg, var(--bg-input) 0%, var(--bg-input) 100%);
+  box-shadow: 0 0 0 3px var(--accent-border), inset 0 1px 2px var(--bg-elevated);
 }
 
 .checkbox-field {
@@ -1332,13 +1358,13 @@ onMounted(async () => {
 .checkbox-field input[type='checkbox'] {
   width: 17px;
   height: 17px;
-  accent-color: var(--accent-brand, #6366f1);
+  accent-color: var(--accent-brand);
   border-radius: 4px;
   cursor: pointer;
 }
 
 .checkbox-field span {
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
 }
@@ -1346,22 +1372,22 @@ onMounted(async () => {
 .mapping-card {
   margin-bottom: 16px;
   padding: 20px;
-  border: 1px solid var(--border-medium, rgba(255, 255, 255, 0.14));
+  border: 1px solid var(--border-medium);
   border-radius: var(--radius-md, 10px);
-  background: linear-gradient(180deg, rgba(19, 29, 49, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%);
-  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.35);
+  background: linear-gradient(180deg, var(--bg-surface) 0%, var(--bg-surface) 100%);
+  box-shadow: 0 4px 16px -2px var(--bg-elevated);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .mapping-card:hover {
-  border-color: rgba(99, 102, 241, 0.35);
-  box-shadow: 0 6px 20px -2px rgba(0, 0, 0, 0.45);
+  border-color: var(--accent-border);
+  box-shadow: 0 6px 20px -2px var(--bg-elevated);
 }
 
 .mapping-card-header {
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .mapping-title {
@@ -1412,7 +1438,7 @@ onMounted(async () => {
 }
 
 .template-table tr:hover td {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-elevated);
 }
 
 .template-name {
@@ -1510,20 +1536,20 @@ onMounted(async () => {
 }
 
 .badge-info {
-  background: rgba(56, 189, 248, 0.12);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: var(--bg-surface);
+  color: var(--info);
+  border: 1px solid var(--bg-surface);
 }
 
 .badge-invoice {
-  background: rgba(99, 102, 241, 0.12);
-  color: #818cf8;
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
 }
 
 .badge-dataset {
-  background: rgba(16, 185, 129, 0.12);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  background: var(--status-success-bg);
+  color: var(--success);
+  border: 1px solid var(--status-success-border);
 }
 </style>

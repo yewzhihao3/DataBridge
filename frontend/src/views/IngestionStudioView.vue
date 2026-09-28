@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
+import { api } from '@/services/api'
+import { reviewedTemplateId } from '@/composables/useSuggestionDraft'
+import SmartSuggestionsCard from '@/components/ingestion/SmartSuggestionsCard.vue'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -44,6 +47,16 @@ const {
   confirmImport,
   resetWorkflow,
 } = useImportWorkflow()
+
+onMounted(async () => {
+  if (uploadedFile.value) {
+    try {
+      templates.value = await api.listTemplates()
+      if (reviewedTemplateId.value !== null) selectedTemplateId.value = reviewedTemplateId.value
+      reviewedTemplateId.value = null
+    } catch { templateError.value = 'Could not refresh templates. Please try again.' }
+  }
+})
 
 const workflowSteps = [
   { number: 1, label: 'Upload' },
@@ -146,6 +159,8 @@ const overallStatusText = computed(() => {
     />
 
     <!-- Step 2: Template Selection -->
+    <SmartSuggestionsCard v-if="currentStep === 2 && uploadedFile" :file-id="uploadedFile.id" :disabled="isExtracting"
+      @select="selectedTemplateId = $event" />
     <TemplateSelectorCard
       v-if="currentStep >= 2 && uploadedFile"
       :templates="templates"

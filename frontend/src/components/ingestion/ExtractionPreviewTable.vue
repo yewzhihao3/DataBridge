@@ -1113,11 +1113,11 @@ function isTotalField(key: string): boolean {
 }
 
 .detail-row--error {
-  background: rgba(239, 68, 68, 0.04);
+  background: var(--status-error-bg);
 }
 
 .detail-row--warning {
-  background: rgba(245, 158, 11, 0.04);
+  background: var(--status-warning-bg);
 }
 
 .detail-field-name {
@@ -1132,8 +1132,8 @@ function isTotalField(key: string): boolean {
 .required-tag {
   font-size: 0.62rem;
   font-weight: 600;
-  background: rgba(239, 68, 68, 0.12);
-  color: #f87171;
+  background: var(--status-error-bg);
+  color: var(--danger);
   padding: 0.05rem 0.3rem;
   border-radius: 3px;
 }
@@ -1276,27 +1276,27 @@ function isTotalField(key: string): boolean {
 }
 
 .business-row:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-elevated);
 }
 
 .business-row--expanded {
-  background: rgba(99, 102, 241, 0.04);
+  background: var(--accent-soft);
 }
 
 .business-row--error {
-  background: rgba(239, 68, 68, 0.04);
+  background: var(--status-error-bg);
 }
 
 .business-row--error:hover {
-  background: rgba(239, 68, 68, 0.07);
+  background: var(--status-error-bg);
 }
 
 .business-row--warning {
-  background: rgba(245, 158, 11, 0.03);
+  background: var(--status-warning-bg);
 }
 
 .business-row--warning:hover {
-  background: rgba(245, 158, 11, 0.06);
+  background: var(--status-warning-bg);
 }
 
 .business-row td.col-numeric {

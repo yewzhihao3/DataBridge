@@ -1,58 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
 :root {
-  /* Color Palette - Dark Obsidian Theme */
-  --bg-app: #090d16;
-  --bg-card: #111827;
-  --bg-card-hover: #172033;
-  --bg-subtle: #1e293b;
-  --bg-surface: #131d31;
-  --bg-input: #0b1120;
-  
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-default: rgba(255, 255, 255, 0.15);
-  --border-medium: rgba(255, 255, 255, 0.24);
-  --border-focus: #6366f1;
-  
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-inverse: #090d16;
-
-  /* Accent & Brand */
-  --accent-brand: #6366f1;
-  --accent-brand-hover: #4f46e5;
-  --accent-brand-subtle: rgba(99, 102, 241, 0.15);
-  --accent-cyan: #06b6d4;
-  --accent-cyan-subtle: rgba(6, 182, 212, 0.15);
-
-  /* Status Colors */
-  --status-success: #10b981;
-  --status-success-bg: rgba(16, 185, 129, 0.12);
-  --status-success-border: rgba(16, 185, 129, 0.3);
-
-  --status-warning: #f59e0b;
-  --status-warning-bg: rgba(245, 158, 11, 0.12);
-  --status-warning-border: rgba(245, 158, 11, 0.3);
-
-  --status-error: #ef4444;
-  --status-error-bg: rgba(239, 68, 68, 0.12);
-  --status-error-border: rgba(239, 68, 68, 0.3);
-
-  --status-info: #0284c7;
-  --status-info-bg: rgba(2, 132, 199, 0.12);
-  --status-info-border: rgba(2, 132, 199, 0.3);
-
   /* Typography */
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-
-  /* Elevation & Shadows */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.5), 0 2px 6px -1px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 12px 32px -4px rgba(0, 0, 0, 0.6), 0 4px 12px -2px rgba(0, 0, 0, 0.4);
-  --shadow-glow: 0 0 25px rgba(99, 102, 241, 0.25);
-  --shadow-cyan-glow: 0 0 25px rgba(6, 182, 212, 0.25);
 
   /* Radii */
   --radius-sm: 6px;
@@ -64,7 +15,6 @@
   --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -201,13 +151,13 @@ input, select, textarea {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent-brand), #4338ca);
-  color: white;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, var(--accent-brand), var(--accent));
+  color: var(--on-accent);
+  box-shadow: 0 2px 8px var(--accent-border);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #7c3aed, var(--accent-brand));
+  background: linear-gradient(135deg, var(--accent-hover), var(--accent-brand));
   box-shadow: var(--shadow-glow);
   transform: translateY(-1px);
 }
@@ -231,7 +181,7 @@ input, select, textarea {
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.25);
+  background: var(--status-error-border);
 }
 
 /* Shimmer Loading Animation */

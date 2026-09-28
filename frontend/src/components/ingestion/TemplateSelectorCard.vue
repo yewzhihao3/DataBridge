@@ -275,10 +275,10 @@ function onExtract() {
   min-width: 0;
   box-sizing: border-box;
   padding: 0.75rem 1rem;
-  border: 1px solid var(--border-medium, #475569);
+  border: 1px solid var(--border-medium);
   border-radius: var(--radius-md, 8px);
-  background: var(--bg-input, #0f172a) !important;
-  color: var(--text-primary, #f8fafc) !important;
+  background: var(--bg-input) !important;
+  color: var(--text-primary) !important;
   font-family: inherit;
   font-size: 0.9rem;
   line-height: 1.4;
@@ -302,8 +302,8 @@ function onExtract() {
 }
 
 .custom-select option {
-  background: var(--bg-card, #111827);
-  color: var(--text-primary, #f8fafc);
+  background: var(--bg-card);
+  color: var(--text-primary);
 }
 
 .template-details {

@@ -1,8 +1,7 @@
 # DataBridge
 
-Milestone 10 — Dashboard & Analytics is implemented and verified. See
-[M10 behavior, API, verification, and limitations](docs/milestone-10.md).
-Milestone 11 has not started.
+Milestone 11 — Smart Extraction & Theme System is implemented and verified. See
+[M11 architecture, behavior, verification, and limitations](docs/milestone-11.md).
 
 **Configurable Business Data Ingestion & Validation Platform**
 

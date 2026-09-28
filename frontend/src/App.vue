@@ -21,4 +21,4 @@ import AppHeader from '@/components/common/AppHeader.vue'
 .app-content {
   width: 100%;
 }
-</style>
+</style>

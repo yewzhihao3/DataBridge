@@ -1188,7 +1188,7 @@ td.actions-column {
 
   padding: 1.5rem;
 
-  background: rgba(3, 7, 18, 0.78);
+  background: var(--bg-surface);
   backdrop-filter: blur(5px);
 }
 
@@ -1482,7 +1482,7 @@ td.actions-column {
 .edit-field input:focus {
   outline: none;
   border-color: var(--accent-brand);
-  box-shadow: 0 0 0 2px var(--accent-brand-subtle, rgba(99, 102, 241, 0.2));
+  box-shadow: 0 0 0 2px var(--accent-brand-subtle);
 }
 
 .edit-form-actions {
