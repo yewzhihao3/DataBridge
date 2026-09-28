@@ -36,6 +36,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+from sqlalchemy import ForeignKey
 
 
 class ImportBatch(Base):
@@ -44,6 +45,7 @@ class ImportBatch(Base):
     """
 
     __tablename__ = "import_batches"
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True)
 
     id = Column(Integer, primary_key=True, index=True)
     source_file_id = Column(

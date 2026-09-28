@@ -59,12 +59,22 @@ def setup_test_db(tmp_path: Path) -> Generator[None, None, None]:
     Creates fresh database schema in memory and overrides upload_dir to a tmp_path
     before each test, cleaning up afterwards.
     """
+    # Each test gets a fresh limiter state, like the isolated database.
+    middleware = app.middleware_stack
+    while middleware is not None:
+        if hasattr(middleware, "attempts"):
+            middleware.attempts.clear()
+        middleware = getattr(middleware, "app", None)
     # Override upload directory to temporary directory
     original_upload_dir = settings.upload_dir
     settings.upload_dir = tmp_path / "test_uploads"
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
 
     Base.metadata.create_all(bind=test_engine)
+    from app.models.identity import Organization
+    with TestingSessionLocal() as seed:
+        seed.add(Organization(id=1, name="Test Workspace", slug="test"))
+        seed.commit()
 
     yield
 
@@ -76,6 +86,7 @@ def setup_test_db(tmp_path: Path) -> Generator[None, None, None]:
 def db_session() -> Generator[Session, None, None]:
     """Provides a transactional database session for unit/integration tests."""
     session = TestingSessionLocal()
+    session.info["organization_id"] = 1
     try:
         yield session
     finally:
@@ -102,6 +113,17 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        from app.models.identity import User, OrganizationMembership
+        from app.security import password_hasher
+        with TestingSessionLocal() as seed:
+            user = User(email="baseline@example.test", display_name="Baseline", password_hash=password_hasher.hash("baseline-password"))
+            seed.add(user)
+            seed.flush()
+            seed.add(OrganizationMembership(user_id=user.id, organization_id=1, role="OWNER"))
+            seed.commit()
+        login = await ac.post("/api/v1/auth/login", json={"email": "baseline@example.test", "password": "baseline-password"})
+        assert login.status_code == 200, login.text
+        ac.headers["x-csrf-token"] = login.json()["csrf_token"]
         yield ac
 
     app.dependency_overrides.clear()

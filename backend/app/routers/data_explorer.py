@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.database import get_db
+from app.tenancy import get_tenant_db as get_db
 from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord
 from app.services.business_query import active_record_scope, invoice_filter_conditions
 from app.models.source_file import SourceFile
@@ -317,7 +317,7 @@ def update_invoice(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update invoice record: {exc}",
+            detail="Failed to update invoice record",
         ) from exc
 
     raw_dict: dict[str, Any] | None = None

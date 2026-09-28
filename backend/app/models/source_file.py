@@ -5,6 +5,7 @@ app/models/source_file.py — Database model for tracked source files.
 from datetime import datetime
 from sqlalchemy import Column, DateTime, Integer, String, func
 from app.database import Base
+from sqlalchemy import ForeignKey
 
 
 class SourceFile(Base):
@@ -22,6 +23,7 @@ class SourceFile(Base):
     """
 
     __tablename__ = "source_files"
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True)
 
     id = Column(Integer, primary_key=True, index=True)
     original_name = Column(String(255), nullable=False)

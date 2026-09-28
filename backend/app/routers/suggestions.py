@@ -2,7 +2,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
 from app.config import settings
-from app.database import get_db
+from app.services.storage import storage
+from app.tenancy import get_tenant_db as get_db
 from app.models.source_file import SourceFile
 from app.models.template import Template
 from app.schemas.suggestion import AnalyzeRequest, AnalyzeResponse
@@ -19,8 +20,8 @@ def analyze(request: AnalyzeRequest, db: Session = Depends(get_db)):
     source = db.get(SourceFile, request.file_id)
     if not source:
         raise HTTPException(404, "Uploaded file not found.")
-    path = (settings.upload_dir / source.stored_filename).resolve()
-    if not path.is_relative_to(settings.upload_dir.resolve()) or not path.is_file():
+    path = storage.local_path(source.stored_filename)
+    if not path.is_file():
         raise HTTPException(404, "Uploaded file not found on disk.")
     try:
         profiles = profile_workbook(path, settings.max_file_size_mb)

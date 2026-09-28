@@ -59,25 +59,10 @@ const filteredImports = computed(() => {
   })
 })
 
-const totalRecords = computed(() =>
-  imports.value.reduce(
-    (total, item) => total + item.record_count,
-    0,
-  ),
-)
-
-const totalWarnings = computed(() =>
-  imports.value.reduce(
-    (total, item) => total + item.warning_count,
-    0,
-  ),
-)
-
-const successfulImports = computed(() =>
-  imports.value.filter((item) =>
-    isSuccessfulStatus(item.status),
-  ).length,
-)
+const summary = ref({ total_imports: 0, total_records: 0, total_warnings: 0 })
+const totalRecords = computed(() => summary.value.total_records)
+const totalWarnings = computed(() => summary.value.total_warnings)
+const successfulImports = computed(() => summary.value.total_imports)
 
 function isSuccessfulStatus(status: string): boolean {
   return [
@@ -165,6 +150,7 @@ async function loadImports(): Promise<void> {
   errorMessage.value = ''
 
   try {
+    summary.value = await api.getImportSummary()
     const skip = (currentPage.value - 1) * pageSize
 
     const result = await api.listImportBatches(
@@ -336,7 +322,7 @@ onMounted(() => {
           </span>
 
           <strong>
-            {{ imports.length }}
+            {{ summary.total_imports }}
           </strong>
         </div>
       </div>

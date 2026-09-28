@@ -4,7 +4,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.tenancy import get_tenant_db as get_db
 from app.schemas.analytics import AnalyticsFilterOptions, AnalyticsFilters, DashboardResponse
 from app.services.analytics_service import dashboard, filter_options
 

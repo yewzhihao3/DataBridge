@@ -29,7 +29,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.database import get_db
+from app.services.storage import storage
+from app.tenancy import get_tenant_db as get_db
 from app.models.source_file import SourceFile
 from app.schemas.source_file import (
     FileUploadResponse,
@@ -78,10 +79,8 @@ async def upload_file(
         )
 
     # Prepare storage paths
-    upload_dir = settings.upload_dir.resolve()
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    temp_path = upload_dir / f".tmp_{os.urandom(8).hex()}.xlsx"
+    temp_key = storage.new_key(temporary=True)
+    temp_path = storage.local_path(temp_key)
     final_path: Path | None = None
     hasher = hashlib.sha256()
     total_bytes = 0
@@ -105,12 +104,11 @@ async def upload_file(
         checksum = hasher.hexdigest()
 
         # 3. Generate safe UUID final destination
-        final_path, stored_filename = generate_safe_upload_path(
-            upload_dir, file.filename
-        )
+        stored_filename = storage.new_key()
+        final_path = storage.local_path(stored_filename)
 
         # 4. Move temp file to final destination
-        os.replace(temp_path, final_path)
+        storage.promote(temp_key, stored_filename)
 
         # 5. Inspect the workbook structure and check for formula cells
         inspection_result = inspect_workbook(
@@ -169,7 +167,7 @@ async def upload_file(
         _cleanup_files(temp_path, final_path)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An unexpected error occurred while processing the upload: {exc}",
+            detail="An unexpected error occurred while processing the upload",
         ) from exc
 
 
@@ -196,7 +194,7 @@ def preview_worksheet(
             detail=f"File with ID {file_id} was not found.",
         )
 
-    file_path = settings.upload_dir / source_file.stored_filename
+    file_path = storage.local_path(source_file.stored_filename)
     if not file_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -240,6 +238,6 @@ def _cleanup_files(*paths: Path | None) -> None:
     for p in paths:
         if p is not None and p.exists():
             try:
-                p.unlink()
+                storage.delete(p.name)
             except OSError:
                 pass

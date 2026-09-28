@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import model_validator, BaseModel, ConfigDict, Field
 
 
 class ImportConfirmRequest(BaseModel):
@@ -77,6 +77,14 @@ class InvoiceRecordUpdate(BaseModel):
     currency: str | None = Field(None, max_length=10)
 
     model_config = ConfigDict(extra="forbid")
+
+
+    @model_validator(mode="after")
+    def require_identifiers_when_provided(self):
+        for field in ("company_name", "invoice_number"):
+            if field in self.model_fields_set and (getattr(self, field) is None or not getattr(self, field).strip()):
+                raise ValueError(f"{field} cannot be blank")
+        return self
 
 
 class ImportBatchListItem(BaseModel):

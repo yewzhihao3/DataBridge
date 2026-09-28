@@ -96,12 +96,7 @@ def sanitize_csv_value(val: Any) -> Any:
 
     s_val = str(val)
     if s_val and s_val.startswith(DANGEROUS_FORMULA_PREFIXES):
-        # Do not prefix if it's a valid negative number (e.g., "-12.50")
-        try:
-            float(s_val)
-            return s_val
-        except ValueError:
-            return f"'{s_val}"
+        return f"'{s_val}"
     return s_val
 
 
@@ -253,7 +248,7 @@ def generate_invoices_csv(records: list[InvoiceRecord]) -> str:
 
     output = io.StringIO()
     writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
-    writer.writerow(headers)
+    writer.writerow([sanitize_csv_value(v) for v in headers])
 
     for rec in records:
         batch = rec.batch
@@ -265,7 +260,7 @@ def generate_invoices_csv(records: list[InvoiceRecord]) -> str:
             sanitize_csv_value(rec.company_name),
             sanitize_csv_value(rec.invoice_number),
             rec.invoice_date.isoformat() if rec.invoice_date else "",
-            rec.currency or "",
+            sanitize_csv_value(rec.currency or ""),
             str(rec.total_amount) if rec.total_amount is not None else "",
         ]
 
@@ -312,7 +307,7 @@ def generate_line_items_csv(items: list[InvoiceLineItem]) -> str:
 
     output = io.StringIO()
     writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
-    writer.writerow(headers)
+    writer.writerow([sanitize_csv_value(v) for v in headers])
 
     for li in items:
         parent = li.invoice_record
@@ -323,7 +318,7 @@ def generate_line_items_csv(items: list[InvoiceLineItem]) -> str:
             sanitize_csv_value(parent.company_name if parent else ""),
             sanitize_csv_value(parent.invoice_number if parent else ""),
             parent.invoice_date.isoformat() if (parent and parent.invoice_date) else "",
-            (parent.currency if parent else "") or "",
+            sanitize_csv_value((parent.currency if parent else "") or ""),
             sanitize_csv_value(li.description or ""),
             str(li.quantity) if li.quantity is not None else "",
             str(li.unit_price) if li.unit_price is not None else "",
@@ -363,6 +358,8 @@ def _style_xlsx_header(ws: openpyxl.worksheet.worksheet.Worksheet, headers: list
     )
 
     ws.append(headers)
+    for cell in ws[1]:
+        cell.data_type = "s"
     for col_num in range(1, len(headers) + 1):
         cell = ws.cell(row=1, column=col_num)
         cell.font = header_font
@@ -464,6 +461,8 @@ def generate_invoices_xlsx(records: list[InvoiceRecord]) -> bytes:
         row_idx = ws.max_row
         for col_idx, val in enumerate(row_cells, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
+            if isinstance(val, str):
+                cell.data_type = "s"
             cell.font = data_font
 
             if isinstance(val, date) and not isinstance(val, datetime):
@@ -479,6 +478,7 @@ def generate_invoices_xlsx(records: list[InvoiceRecord]) -> bytes:
     _auto_fit_columns(ws)
 
     buffer = io.BytesIO()
+    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
     wb.save(buffer)
     wb.close()
     return buffer.getvalue()
@@ -554,6 +554,8 @@ def generate_line_items_xlsx(items: list[InvoiceLineItem]) -> bytes:
         row_idx = ws.max_row
         for col_idx, val in enumerate(row_cells, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
+            if isinstance(val, str):
+                cell.data_type = "s"
             cell.font = data_font
 
             if isinstance(val, date) and not isinstance(val, datetime):
@@ -572,6 +574,7 @@ def generate_line_items_xlsx(items: list[InvoiceLineItem]) -> bytes:
     _auto_fit_columns(ws)
 
     buffer = io.BytesIO()
+    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
     wb.save(buffer)
     wb.close()
     return buffer.getvalue()

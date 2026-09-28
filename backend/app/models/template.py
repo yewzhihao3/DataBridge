@@ -35,6 +35,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from app.database import Base
+from sqlalchemy import ForeignKey
 
 
 class Template(Base):
@@ -43,9 +44,11 @@ class Template(Base):
     """
 
     __tablename__ = "templates"
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True)
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False, unique=True, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    __table_args__ = (UniqueConstraint("organization_id", "name", name="uq_workspace_template_name"),)
     description = Column(Text, nullable=True)
     template_type = Column(String(20), nullable=False, default="invoice")  # "invoice" | "dataset"
     file_type = Column(String(20), nullable=False, default="xlsx")

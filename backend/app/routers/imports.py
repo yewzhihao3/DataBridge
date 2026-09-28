@@ -23,8 +23,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
+from app.services.storage import storage
 from app.constants import CANONICAL_INVOICE_FIELDS, CANONICAL_LINE_ITEM_FIELDS
-from app.database import get_db
+from app.tenancy import get_tenant_db as get_db
 from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord, ValidationErrorRecord
 from app.models.source_file import SourceFile
 from app.models.template import Template
@@ -70,6 +71,8 @@ def _create_db_duplicate_checker(db: Session) -> Any:
     def check_duplicate(company_name: str, invoice_number: str) -> bool:
         return (
             db.query(InvoiceRecord)
+            .join(ImportBatch)
+            .filter(ImportBatch.is_deleted.is_(False))
             .filter(
                 InvoiceRecord.company_name == company_name,
                 InvoiceRecord.invoice_number == invoice_number,
@@ -125,7 +128,7 @@ def extract_preview(
             detail=f"Template with ID {payload.template_id} was not found.",
         )
 
-    file_path = settings.upload_dir / source_file.stored_filename
+    file_path = storage.local_path(source_file.stored_filename)
     if not file_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -324,7 +327,7 @@ def extract_preview(
     except (InvalidFileFormatError, CorruptWorkbookError, FileSizeExceededError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Extraction failed: {exc}",
+            detail="Extraction failed",
         ) from exc
 
 
@@ -364,7 +367,7 @@ def confirm_import(
             detail=f"Template with ID {payload.template_id} was not found.",
         )
 
-    file_path = settings.upload_dir / source_file.stored_filename
+    file_path = storage.local_path(source_file.stored_filename)
     if not file_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -381,7 +384,7 @@ def confirm_import(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Re-extraction failed during confirmation: {exc}",
+            detail="Re-extraction failed during confirmation",
         ) from exc
 
     # 2. Run business validation, passing target_field mapping for correct key routing
@@ -513,8 +516,10 @@ def confirm_import(
 
         for rr in validation_report.row_reports:
             norm_data = rr.normalized_data
-            comp_name = _resolve_row_canonical(norm_data, "company_name", CANONICAL_INVOICE_ALIASES["company_name"]) or "Unknown Company"
-            inv_num = _resolve_row_canonical(norm_data, "invoice_number", CANONICAL_INVOICE_ALIASES["invoice_number"]) or "Unknown Invoice"
+            comp_name = _resolve_row_canonical(norm_data, "company_name", CANONICAL_INVOICE_ALIASES["company_name"])
+            inv_num = _resolve_row_canonical(norm_data, "invoice_number", CANONICAL_INVOICE_ALIASES["invoice_number"])
+            if not comp_name or not inv_num:
+                raise HTTPException(422, "Company name and invoice number are required to confirm an import")
             inv_date = _coerce_date(_resolve_row_canonical(norm_data, "invoice_date", CANONICAL_INVOICE_ALIASES["invoice_date"]))
             tot_amt = _coerce_decimal(_resolve_row_canonical(norm_data, "total_amount", CANONICAL_INVOICE_ALIASES["total_amount"]))
             curr = _resolve_row_canonical(norm_data, "currency", CANONICAL_INVOICE_ALIASES["currency"])
@@ -543,8 +548,10 @@ def confirm_import(
             batch.invoice_records.append(invoice_record)
     else:
         norm_data = validation_report.normalized_data
-        comp_name = _resolve_row_canonical(norm_data, "company_name", CANONICAL_INVOICE_ALIASES["company_name"]) or "Unknown Company"
-        inv_num = _resolve_row_canonical(norm_data, "invoice_number", CANONICAL_INVOICE_ALIASES["invoice_number"]) or "Unknown Invoice"
+        comp_name = _resolve_row_canonical(norm_data, "company_name", CANONICAL_INVOICE_ALIASES["company_name"])
+        inv_num = _resolve_row_canonical(norm_data, "invoice_number", CANONICAL_INVOICE_ALIASES["invoice_number"])
+        if not comp_name or not inv_num:
+            raise HTTPException(422, "Company name and invoice number are required to confirm an import")
         inv_date = _coerce_date(_resolve_row_canonical(norm_data, "invoice_date", CANONICAL_INVOICE_ALIASES["invoice_date"]))
         tot_amt = _coerce_decimal(_resolve_row_canonical(norm_data, "total_amount", CANONICAL_INVOICE_ALIASES["total_amount"]))
         curr = _resolve_row_canonical(norm_data, "currency", CANONICAL_INVOICE_ALIASES["currency"])
@@ -666,7 +673,7 @@ def confirm_import(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to persist import batch: {exc}",
+            detail="Failed to persist import batch",
         ) from exc
 
 
@@ -718,6 +725,13 @@ def list_import_batches(
 
 
 # ── Batch Detail Endpoint ─────────────────────────────────────────────────────
+
+
+@router.get("/summary")
+def import_summary(db: Session = Depends(get_db)):
+    from sqlalchemy import func
+    count, records, warnings = db.query(func.count(ImportBatch.id), func.coalesce(func.sum(ImportBatch.record_count), 0), func.coalesce(func.sum(ImportBatch.warning_count), 0)).filter(ImportBatch.is_deleted.is_(False)).one()
+    return {"total_imports": count, "total_records": records, "total_warnings": warnings}
 
 
 @router.get(
@@ -873,5 +887,5 @@ def update_invoice_record(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update invoice record: {exc}",
+            detail="Failed to update invoice record",
         ) from exc

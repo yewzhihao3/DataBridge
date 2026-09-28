@@ -548,3 +548,8 @@ This project demonstrates practical software engineering patterns:
 ## License
 
 This project is licensed under the MIT License.
+
+
+## M12 — Production & SaaS Foundation
+
+Authentication, workspace isolation, memberships, invitations, settings and Alembic migrations are implemented. Run `alembic upgrade head` from `backend` before starting the updated API; existing M11 data is assigned to an unclaimed Default Workspace. See [M12 architecture and verification](docs/milestone-12.md) and [deployment/migration instructions](docs/deployment.md). PostgreSQL DDL is checked, but live PostgreSQL and Docker execution remain unverified in this environment.

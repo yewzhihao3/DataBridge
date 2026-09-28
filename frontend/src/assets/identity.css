@@ -1,0 +1,23 @@
+.identity-page { min-height: 90vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem 1rem; gap: 1.6rem; }
+.identity-brand { color: var(--text-primary); font-size: 1.5rem; font-weight: 750; text-align: center; }
+.identity-brand span { display: block; color: var(--text-muted); font-size: .9rem; font-weight: 400; margin-top: .5rem; }
+.identity-card { width: 100%; max-width: 460px; padding: 2rem; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 16px; }
+.identity-card h1 { font-size: 1.75rem; margin: .5rem 0 1rem; }
+.identity-card form, .settings-panel form { display: grid; gap: 1rem; margin: 1.25rem 0; }
+.identity-card label, .settings-panel label, .identity-appearance label { display: grid; gap: .5rem; font-size: .9rem; }
+.identity-card input, .settings-panel input, .settings-panel select, .identity-appearance select, .workspace-select { width: 100%; padding: .7rem; border: 1px solid var(--border-subtle); border-radius: 8px; color: var(--text-primary); background: var(--bg-app); }
+.identity-card .muted, .settings-panel .muted { color: var(--text-muted); line-height: 1.6; }
+.eyebrow { color: var(--accent-brand); font-size: .75rem; font-weight: 700; letter-spacing: .12em; }
+.identity-error { color: var(--text-primary); padding: .8rem; border: 1px solid #d75b50; border-radius: 8px; }
+.identity-appearance { display: flex; gap: 1rem; }
+.workspace-select { max-width: 210px; font-size: .8rem; }
+.account-bar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .75rem; align-items: center; padding: .65rem 1.5rem; border-bottom: 1px solid var(--border-subtle); background: var(--bg-surface); }
+.account-bar a, .identity-card a { color: var(--accent-brand); }
+.settings-layout { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+.settings-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.5rem 0; }
+.settings-panel { padding: 1.5rem; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--bg-surface); }
+.settings-panel form { max-width: 460px; }
+.member-row { display: flex; align-items: center; flex-wrap: wrap; gap: .8rem; padding: 1rem 0; border-bottom: 1px solid var(--border-subtle); }
+.member-row .member-name { flex: 1; min-width: 170px; }
+.member-row select { width: 120px; }
+@media(max-width: 600px) { .identity-card { padding: 1.4rem; } .account-bar { justify-content: flex-start; padding: .6rem 1rem; } }

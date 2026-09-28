@@ -41,7 +41,7 @@ watch(
         company_name: newInv.company_name,
         invoice_number: newInv.invoice_number,
         invoice_date: newInv.invoice_date ?? null,
-        total_amount: newInv.total_amount ?? null,
+        total_amount: newInv.total_amount == null ? null : Number(newInv.total_amount),
         currency: newInv.currency ?? null,
       }
       isEditing.value = false
@@ -56,7 +56,7 @@ function startEdit() {
     company_name: props.invoice.company_name,
     invoice_number: props.invoice.invoice_number,
     invoice_date: props.invoice.invoice_date ?? null,
-    total_amount: props.invoice.total_amount ?? null,
+    total_amount: props.invoice.total_amount == null ? null : Number(props.invoice.total_amount),
     currency: props.invoice.currency ?? null,
   }
   isEditing.value = true

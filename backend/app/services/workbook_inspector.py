@@ -229,6 +229,18 @@ def validate_xlsx_file(
 
 # ── Workbook Inspection ───────────────────────────────────────────────────────
 
+    # Check archive metadata before XML parsing or decompression.
+    try:
+        with zipfile.ZipFile(path) as archive:
+            entries = archive.infolist()
+            if len(entries) > 2000 or sum(e.file_size for e in entries) > 100 * 1024 * 1024:
+                raise FileSizeExceededError("Workbook expanded size exceeds inspection limits")
+            if any(e.flag_bits & 1 or e.file_size > 30 * 1024 * 1024 or e.file_size / max(e.compress_size, 1) > 1000 for e in entries):
+                raise FileSizeExceededError("Workbook archive exceeds safe compression limits")
+    except zipfile.BadZipFile as exc:
+        raise CorruptWorkbookError("Failed to parse Excel workbook: invalid archive") from exc
+
+
 
 def inspect_workbook(
     file_path: Path | str,
@@ -289,6 +301,8 @@ def inspect_workbook(
             wb_formula.active.title if wb_formula.active is not None else wb_formula.sheetnames[0]
         )
 
+        if len(wb_formula.sheetnames) > 100:
+            raise FileSizeExceededError("Workbook has too many worksheets")
         for sheet_name in wb_formula.sheetnames:
             ws_formula = wb_formula[sheet_name]
             ws_values = wb_values[sheet_name]
@@ -299,6 +313,9 @@ def inspect_workbook(
             sheet_formula_count = 0
             max_row = ws_formula.max_row or 0
             max_col = ws_formula.max_column or 0
+
+            if max_row > 100000 or max_col > 512 or max_row * max_col > 2000000:
+                raise FileSizeExceededError("Worksheet dimensions exceed inspection limits")
 
             # Scan cells for formulas
             for row in ws_formula.iter_rows():

@@ -199,14 +199,14 @@ export interface ImportConfirmRequest {
 
 export interface InvoiceLineItemRead {
   id: number
-  invoice_record_id: number
+  invoice_id: number
   source_row_number?: number | null
   description?: string | null
-  quantity?: number | null
-  unit_price?: number | null
-  tax_rate?: number | null
-  tax_amount?: number | null
-  amount?: number | null
+  quantity?: number | string | null
+  unit_price?: number | string | null
+  tax_rate?: number | string | null
+  tax_amount?: number | string | null
+  amount?: number | string | null
   custom_fields?: Record<string, any> | null
   created_at: string
 }
@@ -217,7 +217,7 @@ export interface InvoiceRecordRead {
   company_name: string
   invoice_number: string
   invoice_date?: string | null
-  total_amount?: number | null
+  total_amount?: number | string | null
   currency?: string | null
   source_worksheet: string
   source_row_number?: number | null
@@ -290,7 +290,7 @@ export interface InvoiceListItem {
   company_name: string
   invoice_number: string
   invoice_date?: string | null
-  total_amount?: number | null
+  total_amount?: number | string | null
   currency?: string | null
   source_worksheet: string
   source_row_number?: number | null
@@ -315,7 +315,7 @@ export interface InvoiceDetailResponse {
   company_name: string
   invoice_number: string
   invoice_date?: string | null
-  total_amount?: number | null
+  total_amount?: number | string | null
   currency?: string | null
   source_worksheet: string
   source_row_number?: number | null
@@ -335,11 +335,11 @@ export interface LineItemListItem {
   currency?: string | null
   source_row_number: number
   description?: string | null
-  quantity?: number | null
-  unit_price?: number | null
-  tax_rate?: number | null
-  tax_amount?: number | null
-  amount?: number | null
+  quantity?: number | string | null
+  unit_price?: number | string | null
+  tax_rate?: number | string | null
+  tax_amount?: number | string | null
+  amount?: number | string | null
   custom_fields?: Record<string, any> | null
   created_at: string
 }

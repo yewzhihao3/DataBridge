@@ -1,9 +1,14 @@
+import { restoreSession, session } from "@/services/session"
 import { createRouter, createWebHistory } from 'vue-router'
 import IngestionStudioView from '@/views/IngestionStudioView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: "/login", component: () => import("@/views/AuthView.vue"), meta: { public: true } },
+    { path: "/register", component: () => import("@/views/AuthView.vue"), meta: { public: true } },
+    { path: "/invite", component: () => import("@/views/InviteView.vue"), meta: { public: true } },
+    { path: "/settings", component: () => import("@/views/SettingsView.vue") },
     {
       path: '/',
       name: 'ingestion-studio',
@@ -39,6 +44,11 @@ const router = createRouter({
       redirect: '/',
     },
   ],
+})
+
+router.beforeEach(async to => {
+  await restoreSession()
+  if (!to.meta.public && !session.value) return "/login"
 })
 
 export default router

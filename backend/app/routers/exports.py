@@ -10,8 +10,9 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.tenancy import get_tenant_db as get_db
 from app.schemas.export import ExportSummaryResponse
+from app.security import audit
 from app.services.export_builder import (
     build_invoices_export_query,
     build_line_items_export_query,
@@ -60,7 +61,7 @@ def get_export_summary(
         total = query.count()
 
         # To discover custom fields without loading all records, sample first 100 or load custom_fields
-        custom_fields_query = query.with_entities(query.column_descriptions[0]["expr"].custom_fields).limit(200).all()
+        custom_fields_query = query.with_entities(query.column_descriptions[0]["expr"].custom_fields).all()
         custom_keys = discover_custom_keys([row[0] for row in custom_fields_query if row])
 
         columns = [
@@ -92,7 +93,7 @@ def get_export_summary(
         )
         total = query.count()
 
-        custom_fields_query = query.with_entities(query.column_descriptions[0]["expr"].custom_fields).limit(200).all()
+        custom_fields_query = query.with_entities(query.column_descriptions[0]["expr"].custom_fields).all()
         custom_keys = discover_custom_keys([row[0] for row in custom_fields_query if row])
 
         columns = [
@@ -156,6 +157,8 @@ def export_invoices_csv(
     today_str = date.today().isoformat()
     filename = f"databridge_invoices_{today_str}.csv"
 
+    audit(db, db.info["organization_id"], db.info["user_id"], "EXPORT_INVOICES" if "invoices" in filename else "EXPORT_LINE_ITEMS")
+    db.commit()
     return Response(
         content=csv_bytes,
         media_type="text/csv; charset=utf-8",
@@ -197,6 +200,8 @@ def export_invoices_xlsx(
     today_str = date.today().isoformat()
     filename = f"databridge_invoices_{today_str}.xlsx"
 
+    audit(db, db.info["organization_id"], db.info["user_id"], "EXPORT_INVOICES" if "invoices" in filename else "EXPORT_LINE_ITEMS")
+    db.commit()
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -240,6 +245,8 @@ def export_line_items_csv(
     today_str = date.today().isoformat()
     filename = f"databridge_line_items_{today_str}.csv"
 
+    audit(db, db.info["organization_id"], db.info["user_id"], "EXPORT_INVOICES" if "invoices" in filename else "EXPORT_LINE_ITEMS")
+    db.commit()
     return Response(
         content=csv_bytes,
         media_type="text/csv; charset=utf-8",
@@ -279,6 +286,8 @@ def export_line_items_xlsx(
     today_str = date.today().isoformat()
     filename = f"databridge_line_items_{today_str}.xlsx"
 
+    audit(db, db.info["organization_id"], db.info["user_id"], "EXPORT_INVOICES" if "invoices" in filename else "EXPORT_LINE_ITEMS")
+    db.commit()
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

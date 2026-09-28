@@ -1,3 +1,4 @@
+import { sessionHeaders, session } from "./session"
 
 /**
  * src/services/api.ts — Typed API Client for DataBridge FastAPI backend.
@@ -39,7 +40,7 @@ async function request<T>(
   let res: Response
 
   try {
-    res = await fetch(url, options)
+    res = await fetch(url, { ...options, credentials: "include", headers: { ...sessionHeaders(), ...options?.headers } })
   } catch (err: any) {
     throw {
       status: 0,
@@ -49,6 +50,7 @@ async function request<T>(
     } as ApiError
   }
 
+  if (res.status === 401) { session.value = null; window.location.assign("/login") }
   if (!res.ok) {
     let errorDetail: any = null
     let errorMsg = `Server error (${res.status})`
@@ -98,6 +100,7 @@ async function request<T>(
 }
 
 export const api = {
+  getImportSummary() { return request<{ total_imports: number; total_records: number; total_warnings: number }>("/imports/summary") },
   async analyzeWorkbook(file_id: number, worksheet?: string): Promise<WorkbookAnalysis> {
     return request('/suggestions/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_id, worksheet }) })
   },
@@ -465,7 +468,7 @@ export const api = {
     const queryString = qp.toString()
     const url = `/api/v1/exports/${dataset}.${format}${queryString ? `?${queryString}` : ''}`
 
-    const res = await fetch(url)
+    const res = await fetch(url, { credentials: "include", headers: sessionHeaders() })
     if (!res.ok) {
       let errMsg = `Export failed (${res.status})`
       try {

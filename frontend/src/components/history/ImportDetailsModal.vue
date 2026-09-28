@@ -47,7 +47,7 @@ function startEdit(record: InvoiceRecordRead) {
     company_name: record.company_name,
     invoice_number: record.invoice_number,
     invoice_date: record.invoice_date ?? null,
-    total_amount: record.total_amount ?? null,
+    total_amount: record.total_amount == null ? null : Number(record.total_amount),
     currency: record.currency ?? null,
   }
   editError.value = ''

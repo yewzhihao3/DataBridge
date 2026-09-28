@@ -16,3 +16,5 @@ __all__ = [
     "ValidationErrorRecord",
 ]
 
+
+from app.models.identity import User, Organization, OrganizationMembership, AuthSession, OrganizationInvitation, AuditEvent

@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.constants import CANONICAL_INVOICE_FIELDS_LIST, CANONICAL_LINE_ITEM_FIELDS_LIST
-from app.database import get_db
+from app.tenancy import get_tenant_db as get_db
 from app.models.template import Template, TemplateFieldMapping
 from app.schemas.template import (
     TemplateCreate,
@@ -29,7 +29,7 @@ from app.schemas.template import (
     TemplateUpdate,
 )
 
-router = APIRouter(prefix="/api/v1/templates", tags=["Templates"])
+router = APIRouter(prefix="/api/v1/templates", tags=["Templates"], dependencies=[Depends(get_db)])
 
 @router.get(
     "/canonical-fields",
@@ -118,7 +118,7 @@ def create_template(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Could not create template due to a constraint conflict: {exc.orig}",
+            detail="Could not create template due to a constraint conflict",
         ) from exc
 
 
@@ -262,7 +262,7 @@ def update_template(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Update failed due to constraint conflict: {exc.orig}",
+            detail="Update failed due to constraint conflict",
         ) from exc
 
 
