@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. Verify secure deployment and versioned schema; never mutate schema here.
-    if settings.app_env == "production" and (not settings.cookie_secure or not settings.frontend_url.startswith("https://") or "*" in settings.cors_origins):
+    if settings.app_env == "production" and (settings.dev_public_origins.strip() or not settings.cookie_secure or not settings.frontend_url.startswith("https://") or "*" in settings.trusted_origins):
         raise RuntimeError("Production requires HTTPS, secure cookies and explicit CORS origins")
 
     with engine.connect() as connection:
@@ -66,7 +66,7 @@ def create_app() -> FastAPI:
     # CORS configuration
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=settings.trusted_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

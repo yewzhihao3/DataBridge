@@ -28,7 +28,7 @@ def verify_password(encoded: str, password: str) -> bool:
 
 def check_origin(request: Request) -> None:
     origin = request.headers.get("origin")
-    if origin and origin not in settings.cors_origins and origin != settings.frontend_url:
+    if origin and origin not in settings.trusted_origins:
         raise HTTPException(403, "Untrusted request origin")
     if request.headers.get("sec-fetch-site") == "cross-site":
         raise HTTPException(403, "Cross-site request rejected")
