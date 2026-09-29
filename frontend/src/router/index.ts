@@ -14,6 +14,8 @@ const router = createRouter({
       name: 'ingestion-studio',
       component: IngestionStudioView,
     },
+    { path: '/history/batch/:sessionId', name: 'batch-resume', component: IngestionStudioView },
+    { path: '/history/batch/:sessionId/file/:fileId/review', name: 'batch-file-review', component: IngestionStudioView },
     {
       path: '/history',
       name: 'import-history',

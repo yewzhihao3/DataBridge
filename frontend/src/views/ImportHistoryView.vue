@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   AlertCircle,
   CalendarDays,
@@ -22,7 +23,11 @@ import type {
   ImportBatchDetail,
   ImportBatchListItem,
   InvoiceRecordUpdate,
+  BatchImportDetail,
 } from '@/types/api'
+
+const router = useRouter()
+const pendingSessions = ref<BatchImportDetail[]>([])
 
 const imports = ref<ImportBatchListItem[]>([])
 const selectedImport = ref<ImportBatchDetail | null>(null)
@@ -161,6 +166,8 @@ async function loadImports(): Promise<void> {
     hasNextPage.value = result.length > pageSize
 
     imports.value = result.slice(0, pageSize)
+    const sessions: BatchImportDetail[] = await api.listBatchImports()
+    pendingSessions.value = sessions.filter((session) => session.files.some((file) => !['imported', 'skipped'].includes(file.status)))
   } catch (error: unknown) {
     const apiError = error as Partial<ApiError>
 
@@ -195,6 +202,9 @@ async function viewImportDetails(
 function closeDetails(): void {
   selectedImport.value = null
   detailsError.value = ''
+}
+function resumeBatch(sessionId: number): void {
+  router.push({ name: 'batch-resume', params: { sessionId } })
 }
 
 async function refreshHistory(): Promise<void> {
@@ -460,9 +470,14 @@ onMounted(() => {
       </p>
     </section>
 
+    <section v-if="!isLoading && pendingSessions.length" class="table-card glass-card pending-review-card">
+      <div class="table-header"><div><h2>Pending Imports</h2><p>Batch sessions persist before their ready files are confirmed.</p></div><span class="table-count">{{ pendingSessions.length }}</span></div>
+      <div class="table-wrapper"><table class="imports-table"><thead><tr><th>Batch</th><th>Files</th><th>Ready</th><th>Needs Review</th><th>Imported</th><th>Created</th><th></th></tr></thead><tbody><tr v-for="item in pendingSessions" :key="item.id"><td>#{{ item.id }}</td><td>{{ item.summary.total }}</td><td>{{ item.summary.ready }}</td><td><span class="badge badge-warning">{{ item.summary.review }} Needs Review</span></td><td>{{ item.summary.imported }}</td><td>{{ formatDate(item.created_at) }}</td><td><button class="btn btn-primary btn-small" @click="resumeBatch(item.id)">View Batch</button></td></tr></tbody></table></div>
+    </section>
+
     <!-- Empty State -->
     <section
-      v-else-if="!errorMessage && filteredImports.length === 0"
+      v-if="!isLoading && !errorMessage && filteredImports.length === 0"
       class="glass-card empty-card"
     >
       <History :size="42" />
@@ -478,7 +493,7 @@ onMounted(() => {
 
     <!-- Import Table -->
     <section
-      v-else-if="!isLoading"
+      v-if="!isLoading && filteredImports.length"
       class="table-card glass-card"
     >
       <div class="table-header">

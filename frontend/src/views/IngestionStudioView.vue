@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from '@/services/api'
 import { reviewedTemplateId } from '@/composables/useSuggestionDraft'
 import SmartSuggestionsCard from '@/components/ingestion/SmartSuggestionsCard.vue'
@@ -17,6 +18,11 @@ import FileUploadCard from '@/components/ingestion/FileUploadCard.vue'
 import TemplateSelectorCard from '@/components/ingestion/TemplateSelectorCard.vue'
 import ExtractionPreviewTable from '@/components/ingestion/ExtractionPreviewTable.vue'
 import { useImportWorkflow } from '@/composables/useImportWorkflow'
+import BatchImportReview from '@/components/ingestion/BatchImportReview.vue'
+import BatchWarningReviewModal from '@/components/ingestion/BatchWarningReviewModal.vue'
+import type { BatchImportDetail, ExtractionPreviewResponse, BatchImportFile } from '@/types/api'
+import { toast } from '@/services/toast'
+const route = useRoute()
 
 const {
   currentStep,
@@ -56,6 +62,14 @@ onMounted(async () => {
       reviewedTemplateId.value = null
     } catch { templateError.value = 'Could not refresh templates. Please try again.' }
   }
+  const sessionId = Number(route.params.sessionId || route.query.batchSession)
+  const fileId = Number(route.params.fileId || route.query.fileId)
+  if (sessionId) {
+    try {
+      batch.value = await api.getBatchImport(sessionId)
+      if (fileId) await openReview(fileId)
+    } catch { toast.error('That batch is no longer available.') }
+  }
 })
 
 const workflowSteps = [
@@ -65,6 +79,27 @@ const workflowSteps = [
   { number: 4, label: 'Confirmation' },
 ]
 const templateChoice = ref<'smart' | 'manual'>('smart')
+const batchInput = ref<HTMLInputElement | null>(null)
+const batch = ref<BatchImportDetail | null>(null)
+const batchBusy = ref(false)
+const reviewPreview = ref<ExtractionPreviewResponse | null>(null)
+const reviewFile = ref<BatchImportFile | null>(null)
+async function startBatch(event: Event) {
+  const files = Array.from((event.target as HTMLInputElement).files || [])
+  if (files.length < 2) return
+  batchBusy.value = true
+  try {
+    const uploaded = await Promise.all(files.map(file => api.uploadFile(file)))
+    batch.value = await api.createBatchImport(uploaded.map(file => file.id))
+    toast.success(`${uploaded.length} files uploaded`)
+    if (batch.value.summary.review + batch.value.summary.failed) toast.warning(`${batch.value.summary.review + batch.value.summary.failed} files require review`)
+  } catch (err: any) { toast.error(err.message || 'Batch upload failed') } finally { batchBusy.value = false; if (batchInput.value) batchInput.value.value = '' }
+}
+async function importBatchReady() { if (!batch.value) return; batchBusy.value = true; try { batch.value = await api.importReadyFiles(batch.value.id); toast.success(`${batch.value.summary.imported} files imported`); if (batch.value.summary.failed) toast.error(`${batch.value.summary.failed} file failed`) } catch (err: any) { toast.error(err.message || 'Batch import failed') } finally { batchBusy.value = false } }
+async function removeBatchFile(fileId: number) { if (!batch.value) return; batch.value = await api.removeBatchFile(batch.value.id, fileId); toast.info('File removed from batch') }
+async function retryBatch() { if (!batch.value) return; batchBusy.value = true; try { batch.value = await api.retryBatchAnalysis(batch.value.id); toast.info('Batch analysis retried') } finally { batchBusy.value = false } }
+async function openReview(fileId: number) { if (!batch.value) return; reviewFile.value = batch.value.files.find(file => file.source_file_id === fileId) || null; if (!reviewFile.value) return; batchBusy.value = true; try { reviewPreview.value = await api.getBatchReview(batch.value.id, fileId) } catch (err: any) { toast.error(err.message || 'Could not load review') } finally { batchBusy.value = false } }
+async function acceptWarnings() { if (!batch.value || !reviewFile.value) return; batchBusy.value = true; try { batch.value = await api.acceptBatchWarnings(batch.value.id, reviewFile.value.source_file_id); reviewPreview.value = null; reviewFile.value = null; toast.success('Import completed'); if (batch.value.summary.review) toast.warning(`${batch.value.summary.review} files still need review`) } catch (err: any) { toast.error(err.message || 'Review import failed') } finally { batchBusy.value = false } }
 function selectSuggestedTemplate(id: number) { selectedTemplateId.value = id; templateChoice.value = 'smart' }
 
 /** Extract company name from preview header fields (if present) */
@@ -123,8 +158,16 @@ const overallStatusText = computed(() => {
       </button>
     </section>
 
+    <section v-if="!uploadedFile && !batch" class="glass-card batch-entry">
+      <div><h2>Import multiple workbooks</h2><p>Upload up to 25 XLSX files. Each workbook is matched and reviewed independently.</p></div>
+      <button class="btn btn-secondary" :disabled="batchBusy" @click="batchInput?.click()">{{ batchBusy ? 'Uploading and analyzing…' : 'Choose batch files' }}</button>
+      <input ref="batchInput" type="file" accept=".xlsx" multiple class="hidden-batch-input" @change="startBatch" />
+    </section>
+    <BatchImportReview v-if="batch" :batch="batch" :busy="batchBusy" @import="importBatchReady" @remove="removeBatchFile" @retry="retryBatch" @review="openReview" />
+    <BatchWarningReviewModal v-if="reviewPreview && reviewFile" :filename="reviewFile.filename" :preview="reviewPreview" :busy="batchBusy" @accept="acceptWarnings" @close="reviewPreview = null; reviewFile = null" />
+
     <!-- Workflow Progress -->
-    <section class="workflow-progress glass-card">
+    <section v-if="!batch" class="workflow-progress glass-card">
       <div
         v-for="step in workflowSteps"
         :key="step.number"
@@ -153,6 +196,7 @@ const overallStatusText = computed(() => {
 
     <!-- Step 1: File Upload -->
     <FileUploadCard
+      v-if="!batch"
       :uploaded-file="uploadedFile"
       :is-uploading="isUploading"
       :error="uploadError"
@@ -161,10 +205,10 @@ const overallStatusText = computed(() => {
     />
 
     <!-- Step 2: Template Selection -->
-    <SmartSuggestionsCard v-if="currentStep === 2 && uploadedFile && templateChoice === 'smart'" :file-id="uploadedFile.id" :disabled="isExtracting"
+    <SmartSuggestionsCard v-if="!batch && currentStep === 2 && uploadedFile && templateChoice === 'smart'" :file-id="uploadedFile.id" :disabled="isExtracting"
       @select="selectSuggestedTemplate" @manual="templateChoice = 'manual'" />
     <TemplateSelectorCard
-      v-if="currentStep >= 2 && uploadedFile"
+      v-if="!batch && currentStep >= 2 && uploadedFile"
       :templates="templates"
       :selected-template-id="selectedTemplateId"
       :uploaded-file="uploadedFile"
@@ -179,7 +223,7 @@ const overallStatusText = computed(() => {
 
     <!-- Step 3: Extraction Preview -->
     <section
-      v-if="currentStep >= 3 && previewResult"
+      v-if="!batch && currentStep >= 3 && previewResult"
       class="preview-section"
     >
       <!-- Zen Data Preview Header -->
@@ -498,6 +542,7 @@ const overallStatusText = computed(() => {
   padding-top: 2rem;
   padding-bottom: 2rem;
 }
+.batch-entry{padding:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}.batch-entry h2,.batch-entry p{margin:0}.batch-entry p{margin-top:.35rem;color:var(--text-secondary)}.hidden-batch-input{display:none}
 
 /* Page Header */
 

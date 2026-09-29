@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { suggestionDraft, reviewedTemplateId } from '@/composables/useSuggestionDraft'
 import { api } from '@/services/api'
+import { toast } from '@/services/toast'
 import type {
   TemplateCreate,
   TemplateDetail,
@@ -381,6 +382,7 @@ const saveTemplate = async () => {
     if (editingTemplateId.value !== null) {
       await api.updateTemplate(editingTemplateId.value, payload)
       successMessage.value = 'Template updated successfully.'
+      toast.success('Template updated')
     } else {
       const created = await api.createTemplate(payload)
       if (reviewingSuggestions.value) {
@@ -390,6 +392,7 @@ const saveTemplate = async () => {
         return
       }
       successMessage.value = 'Template created successfully.'
+      toast.success('Template created')
     }
 
     closeForm()
@@ -417,6 +420,7 @@ const deleteTemplate = async (template: TemplateSummary) => {
   try {
     await api.deleteTemplate(template.id)
     successMessage.value = 'Template deleted successfully.'
+    toast.success('Template deleted')
     await loadTemplates()
   } catch (error: any) {
     errorMessage.value = error.message || 'Failed to delete template.'
@@ -1413,6 +1417,32 @@ onMounted(async () => {
 
 .template-table-wrapper {
   overflow-x: auto;
+  margin: 0 16px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.template-table-card {
+  padding: 24px 0 16px;
+}
+
+.template-table-card .table-header {
+  align-items: flex-start;
+  padding: 0 24px 20px;
+}
+
+.template-table-card .table-header h2 {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.template-table-card .table-header p {
+  margin-top: 7px;
+}
+
+.template-table-card .table-header .btn {
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 .template-table {
@@ -1423,7 +1453,7 @@ onMounted(async () => {
 
 .template-table th,
 .template-table td {
-  padding: 14px 16px;
+  padding: 15px 16px;
   border-bottom: 1px solid var(--border-default);
   font-size: 13px;
 }
@@ -1435,6 +1465,8 @@ onMounted(async () => {
   text-transform: uppercase;
   font-size: 11px;
   letter-spacing: 0.05em;
+  padding-top: 13px;
+  padding-bottom: 13px;
 }
 
 .template-table tr:hover td {
@@ -1551,5 +1583,27 @@ onMounted(async () => {
   background: var(--status-success-bg);
   color: var(--success);
   border: 1px solid var(--status-success-border);
+}
+
+@media (max-width: 640px) {
+  .template-table-card {
+    padding-top: 20px;
+  }
+
+  .template-table-card .table-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+    padding: 0 18px 18px;
+  }
+
+  .template-table-card .table-header .btn {
+    align-self: flex-start;
+    margin-top: 0;
+  }
+
+  .template-table-wrapper {
+    margin: 0 10px;
+  }
 }
 </style>

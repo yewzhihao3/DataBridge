@@ -9,7 +9,7 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session, with_loader_criteria
 from app.database import get_db
 from app.security import Identity, current_identity, audit
-from app.models import Template, TemplateFieldMapping, SourceFile, ImportBatch, InvoiceRecord, InvoiceLineItem, ValidationErrorRecord
+from app.models import Template, TemplateFieldMapping, SourceFile, ImportBatch, InvoiceRecord, InvoiceLineItem, ValidationErrorRecord, BatchImportSession, BatchImportFile
 
 
 def get_tenant_db(identity: Identity = Depends(current_identity), db: Session = Depends(get_db)):
@@ -32,6 +32,8 @@ def scope_queries(state):
         (Template, Template.organization_id == org),
         (SourceFile, SourceFile.organization_id == org),
         (ImportBatch, ImportBatch.organization_id == org),
+        (BatchImportSession, BatchImportSession.organization_id == org),
+        (BatchImportFile, BatchImportFile.session_id.in_(select(BatchImportSession.id).where(BatchImportSession.organization_id == org))),
         (TemplateFieldMapping, TemplateFieldMapping.template_id.in_(select(templates.c.id).where(templates.c.organization_id == org))),
         (InvoiceRecord, InvoiceRecord.batch_id.in_(select(batches.c.id).where(batches.c.organization_id == org))),
         (ValidationErrorRecord, ValidationErrorRecord.batch_id.in_(select(batches.c.id).where(batches.c.organization_id == org))),
@@ -47,7 +49,7 @@ def scope_writes(db, context, instances):
     if org is None:
         return
     for obj in list(db.new) + list(db.dirty) + list(db.deleted):
-        if isinstance(obj, (Template, SourceFile, ImportBatch)):
+        if isinstance(obj, (Template, SourceFile, ImportBatch, BatchImportSession)):
             if obj in db.new and obj.organization_id is None:
                 obj.organization_id = org
             if obj.organization_id != org:
@@ -55,6 +57,8 @@ def scope_writes(db, context, instances):
         parents = []
         if isinstance(obj, ImportBatch):
             parents = [(SourceFile, obj.source_file_id), (Template, obj.template_id)]
+        elif isinstance(obj, BatchImportFile):
+            parents = [(BatchImportSession, obj.session_id), (SourceFile, obj.source_file_id)]
         elif isinstance(obj, TemplateFieldMapping):
             parents = [(Template, obj.template_id)]
         elif isinstance(obj, (InvoiceRecord, ValidationErrorRecord)):

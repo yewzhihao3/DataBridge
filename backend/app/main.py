@@ -17,6 +17,7 @@ from app.config import settings
 from app.web_security import SecurityMiddleware
 from app.routers.analytics import router as analytics_router
 from app.routers.suggestions import router as suggestions_router
+from app.routers.batch_imports import router as batch_imports_router
 from app.database import engine
 from app.routers.auth import router as auth_router
 from app.routers.workspaces import router as workspaces_router
@@ -43,7 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     with engine.connect() as connection:
         revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        if revision != "0002_saas":
+        if revision != "0003_batch_imports":
             raise RuntimeError("Run alembic upgrade head before starting DataBridge")
 
     yield
@@ -92,6 +93,7 @@ def create_app() -> FastAPI:
     app.include_router(exports_router)
     app.include_router(analytics_router)
     app.include_router(suggestions_router)
+    app.include_router(batch_imports_router)
 
     @app.get("/health", tags=["Health"])
     async def health_check() -> dict[str, str]:

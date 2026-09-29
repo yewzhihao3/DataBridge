@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { FileCode, FileSpreadsheet, Loader2, UploadCloud } from 'lucide-vue-next'
 import type { SourceFileUploadResponse } from '@/types/api'
+import { toast } from '@/services/toast'
 
 defineProps<{
   uploadedFile: SourceFileUploadResponse | null
@@ -43,7 +44,7 @@ function onFileInputChange(e: Event) {
 
 function handleFile(file: File) {
   if (!file.name.endsWith('.xlsx')) {
-    alert('Please upload a valid Microsoft Excel (.xlsx) file.')
+    toast.error('Please upload a valid Microsoft Excel (.xlsx) file.')
     return
   }
   emit('file-selected', file)

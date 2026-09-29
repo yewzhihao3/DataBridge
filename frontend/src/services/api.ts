@@ -27,6 +27,7 @@ import type {
   TemplateDetail,
   TemplateSummary,
   WorksheetPreviewResponse,
+  BatchImportDetail,
 } from '@/types/api'
 
 const API_BASE = '/api/v1'
@@ -100,6 +101,16 @@ async function request<T>(
 }
 
 export const api = {
+  async createBatchImport(fileIds: number[]): Promise<BatchImportDetail> {
+    return request('/batch-imports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_ids: fileIds }) })
+  },
+  async getBatchImport(id: number): Promise<BatchImportDetail> { return request(`/batch-imports/${id}`) },
+  async listBatchImports(): Promise<BatchImportDetail[]> { return request('/batch-imports') },
+  async importReadyFiles(id: number): Promise<BatchImportDetail> { return request(`/batch-imports/${id}/import-ready`, { method: 'POST' }) },
+  async removeBatchFile(id: number, fileId: number): Promise<BatchImportDetail> { return request(`/batch-imports/${id}/files/${fileId}`, { method: 'DELETE' }) },
+  async retryBatchAnalysis(id: number): Promise<BatchImportDetail> { return request(`/batch-imports/${id}/analyze`, { method: 'POST' }) },
+  async getBatchReview(id: number, fileId: number): Promise<ExtractionPreviewResponse> { return request(`/batch-imports/${id}/files/${fileId}/review`) },
+  async acceptBatchWarnings(id: number, fileId: number): Promise<BatchImportDetail> { return request(`/batch-imports/${id}/files/${fileId}/accept-warnings`, { method: 'POST' }) },
   getImportSummary() { return request<{ total_imports: number; total_records: number; total_warnings: number }>("/imports/summary") },
   async analyzeWorkbook(file_id: number, worksheet?: string): Promise<WorkbookAnalysis> {
     return request('/suggestions/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_id, worksheet }) })

@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     # Uploads
     upload_dir: Path = Path("uploads")
     max_file_size_mb: int = Field(10, ge=1, le=50)
+    max_batch_file_count: int = Field(25, ge=2, le=50)
+    batch_analysis_concurrency: int = Field(4, ge=1, le=8)
     storage_backend: Literal["local"] = "local"
 
     # Database

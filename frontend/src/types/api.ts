@@ -272,6 +272,18 @@ export interface ImportBatchDetail {
   raw_data?: Record<string, any> | null
 }
 
+export interface BatchImportFile {
+  id: number; source_file_id: number; filename: string; status: string
+  detected_type?: string | null; processing_method?: string | null
+  template_id?: number | null; template_name?: string | null; import_batch_id?: number | null
+  issues: { message: string }[]; error_message?: string | null
+}
+export interface BatchImportDetail {
+  id: number; status: string; created_at: string; completed_at?: string | null
+  summary: { total: number; ready: number; review: number; duplicate: number; failed: number; imported: number; skipped: number }
+  files: BatchImportFile[]
+}
+
 // ── Standard API Error Payload ───────────────────────────────────────────────
 
 export interface ApiError {
