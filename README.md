@@ -1,6 +1,6 @@
 # DataBridge
 
-Document ingestion supports JPG, JPEG, PNG, and PDF invoices alongside XLSX. PDFs use text-first extraction with a replaceable local OCR provider fallback; document results are reviewed before they enter the existing invoice records. See [Milestone 14 document ingestion](docs/milestone-14-document-ingestion.md).
+DataBridge ingests XLSX workbooks, PDFs, and images (JPG, PNG) through a unified Smart Ingestion Studio. Documents go through AI Vision or local OCR extraction, deterministic validation, and human review before entering standardised records. See [Milestone 15](docs/milestone-15.md) for AI receipt intelligence details.
 
 **Business data ingestion, standardization, and analytics for messy Excel workflows.**
 
@@ -226,22 +226,27 @@ These are application protections, not a production-security certification. Conf
 
 ## Current limitations
 
-- Ingestion accepts XLSX only; there is no PDF/image intake or OCR.
-- Smart extraction is deterministic; AI-assisted mapping is not implemented.
-- There is no billing, subscription, email delivery, public production deployment, or external integration layer.
+- AI Vision extraction requires a DeepSeek API key; Tesseract OCR is the local fallback.
+- Upload queue state is session-scoped; there are no durable resumable background jobs.
+- XLSX batch analysis is synchronous and does not use distributed workers.
+- There is no billing, subscription, email delivery, or external integration layer.
 - Staging storage uses a private persistent disk; object storage is future work.
-- Batch analysis is synchronous and does not use distributed workers.
-- A live provider deployment still requires the repository owner to connect a hosting account and supply the generated staging URLs.
 
 ## Roadmap
 
-- PDF/image and OCR-based intake
-- AI-assisted handling of ambiguous mappings
-- Object storage and production deployment verification
-- External integrations and subscription capabilities
+| Milestone | Status | Description |
+|---|---|---|
+| M14 | ✅ Shipped | Document ingestion — PDF/image OCR, invoice/receipt detection, review workflow |
+| M15 | ✅ Shipped | AI-powered receipt intelligence — DeepSeek Vision, structured validation, PDF rasterisation |
+| M15.6 | ✅ Shipped | Unified Smart Ingestion Studio — mixed-file drag-and-drop queue, per-file status |
+| M15.7 | ✅ Shipped | Smart document classification — format detection, type suggestions, manual override |
+| M15.8 | ✅ Shipped | Receipt review UX — severity-banded validation, collapsible AI notes, optional receipt number |
+| M16 | 🔬 Research | Financial document classification — incoming/outgoing invoices, expense vs income receipts |
 
 ## Further reading
 
+- [Milestone 15: AI receipt intelligence, Smart Ingestion Studio, receipt review UX](docs/milestone-15.md)
+- [Milestone 14: document ingestion and OCR](docs/milestone-14-document-ingestion.md)
 - [Milestone 13: batch import and interaction feedback](docs/milestone-13.md)
 - [Milestone 12.5: SaaS UX and developer experience](docs/milestone-12.5.md)
 - [Milestone 12: workspace architecture and security](docs/milestone-12.md)

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/services/api'
 import { suggestionDraft } from '@/composables/useSuggestionDraft'
 import type { WorkbookAnalysis } from '@/types/api'
 
 const props = defineProps<{ fileId: number; disabled: boolean }>()
 const emit = defineEmits<{ (e: 'select', id: number): void; (e: 'manual'): void }>()
+const route = useRoute()
 const router = useRouter()
 const result = ref<WorkbookAnalysis | null>(null)
 const loading = ref(false)
@@ -46,7 +47,7 @@ function review() {
     header_row: analysis.table?.header_row, data_start_row: analysis.table?.data_start_row,
     field_mappings: mappings.value.map(({ confidence, reason, ...mapping }) => ({ ...mapping })),
   }
-  router.push('/templates?review=suggestions')
+  router.push({ path: '/templates', query: { review: 'suggestions', returnTo: route.fullPath } })
 }
 </script>
 

@@ -1,6 +1,6 @@
 """M13 batch orchestration; extraction and persistence stay in existing services."""
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session, joinedload
 from app.config import settings
 from app.models import BatchImportFile, BatchImportSession, SourceFile, Template
@@ -103,10 +103,18 @@ def get_batch(session_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/{session_id}/files/{file_id}", response_model=BatchImportDetail)
 def remove_file(session_id: int, file_id: int, db: Session = Depends(get_db)):
-    item = db.query(BatchImportFile).filter(BatchImportFile.session_id == session_id, BatchImportFile.source_file_id == file_id, BatchImportFile.status.notin_(["imported"])).first()
+    item = db.query(BatchImportFile).filter(BatchImportFile.session_id == session_id, BatchImportFile.source_file_id == file_id).first()
     if not item: raise HTTPException(404, "Pending batch file not found.")
     item.status = "skipped"; item.issues = [{"message": "Removed from this batch before import."}]
     db.commit(); return get_batch(session_id, db)
+
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_batch_session(session_id: int, db: Session = Depends(get_db)):
+    session = db.query(BatchImportSession).filter(BatchImportSession.id == session_id).first()
+    if not session: raise HTTPException(404, "Batch import session not found.")
+    db.delete(session)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.post("/{session_id}/analyze", response_model=BatchImportDetail)
 def retry_analysis(session_id: int, db: Session = Depends(get_db)):
@@ -136,16 +144,35 @@ def import_ready(session_id: int, identity: Identity = Depends(current_identity)
     audit(db, identity.membership.organization_id, identity.user.id, "BATCH_IMPORT_COMPLETED", "batch_import_sessions", session.id)
     db.commit(); return get_batch(session_id, db)
 
-def _review_item(session_id: int, file_id: int, db: Session):
+def _review_item(session_id: int, file_id: int, db: Session, template_id: int | None = None):
     item = db.query(BatchImportFile).filter(BatchImportFile.session_id == session_id, BatchImportFile.source_file_id == file_id).first()
     if not item: raise HTTPException(404, "Batch review item not found.")
-    if item.status not in {"review", "imported"} or not item.template_id:
-        raise HTTPException(409, "This file is not available for warning review.")
+    if item.status not in {"ready", "review", "imported"}:
+        raise HTTPException(409, f"This file is currently {item.status} and not available for review.")
+    # Allow caller to provide/override the template_id on-the-fly
+    if template_id is not None:
+        item.template_id = template_id
+        db.commit()
+    if not item.template_id:
+        raise HTTPException(422, "This file has not been assigned a template yet. Please select or create a template.")
     return item
 
+@router.patch("/{session_id}/files/{file_id}/template", response_model=BatchImportDetail)
+def assign_template(session_id: int, file_id: int, template_id: int, db: Session = Depends(get_db)):
+    """Assign or update the extraction template for a specific batch file."""
+    item = db.query(BatchImportFile).filter(BatchImportFile.session_id == session_id, BatchImportFile.source_file_id == file_id).first()
+    if not item: raise HTTPException(404, "Batch review item not found.")
+    template = db.query(Template).filter(Template.id == template_id).first()
+    if not template: raise HTTPException(404, "Template not found.")
+    item.template_id = template_id
+    if item.status not in {"ready", "imported"}:
+        item.status = "ready"
+    db.commit()
+    return get_batch(session_id, db)
+
 @router.get("/{session_id}/files/{file_id}/review", response_model=ExtractionPreviewResponse)
-def review_preview(session_id: int, file_id: int, db: Session = Depends(get_db)):
-    item = _review_item(session_id, file_id, db)
+def review_preview(session_id: int, file_id: int, template_id: int | None = None, db: Session = Depends(get_db)):
+    item = _review_item(session_id, file_id, db, template_id)
     return extract_preview(ExtractionRequest(file_id=item.source_file_id, template_id=item.template_id), db)
 
 @router.post("/{session_id}/files/{file_id}/accept-warnings", response_model=BatchImportDetail)

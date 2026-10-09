@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
@@ -823,6 +824,48 @@ def soft_delete_import_batch(
     batch.is_deleted = True
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class BulkDeleteImportBatchesRequest(BaseModel):
+    batch_ids: list[int] = Field(default_factory=list)
+    delete_all: bool = False
+
+
+@router.post(
+    "/bulk-delete",
+    status_code=status.HTTP_200_OK,
+    summary="Soft-delete multiple import batches in bulk",
+)
+def bulk_delete_import_batches(
+    payload: BulkDeleteImportBatchesRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Soft-deletes specified import batches or all active import batches.
+    """
+    if payload.delete_all:
+        batches = (
+            db.query(ImportBatch)
+            .filter(ImportBatch.is_deleted == False)  # noqa: E712
+            .all()
+        )
+    elif payload.batch_ids:
+        batches = (
+            db.query(ImportBatch)
+            .filter(
+                ImportBatch.id.in_(payload.batch_ids),
+                ImportBatch.is_deleted == False,  # noqa: E712
+            )
+            .all()
+        )
+    else:
+        return {"deleted_count": 0}
+
+    count = len(batches)
+    for b in batches:
+        b.is_deleted = True
+    db.commit()
+    return {"deleted_count": count}
 
 
 # ── Invoice Record Edit Endpoint ────────────────────────────────────────────────────────────────────

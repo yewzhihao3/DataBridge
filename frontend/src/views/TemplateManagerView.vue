@@ -388,7 +388,8 @@ const saveTemplate = async () => {
       if (reviewingSuggestions.value) {
         reviewedTemplateId.value = created.id
         suggestionDraft.value = null
-        await router.push('/')
+        const returnTo = route.query.returnTo
+        await router.push(typeof returnTo === 'string' && returnTo ? returnTo : '/')
         return
       }
       successMessage.value = 'Template created successfully.'
@@ -424,6 +425,7 @@ const deleteTemplate = async (template: TemplateSummary) => {
     await loadTemplates()
   } catch (error: any) {
     errorMessage.value = error.message || 'Failed to delete template.'
+    toast.error(error.message || 'Failed to delete template.')
   } finally {
     deleting.value = null
   }
@@ -1044,12 +1046,21 @@ onMounted(async () => {
                     </button>
 
                     <button
+                      v-if="template.file_type !== 'document'"
                       class="btn btn-danger btn-small"
                       :disabled="deleting === template.id"
                       @click="deleteTemplate(template)"
                     >
                       {{ deleting === template.id ? 'Deleting...' : 'Delete' }}
                     </button>
+                    <span
+                      v-else
+                      class="badge"
+                      style="opacity: 0.7; font-size: 0.75rem; border: 1px solid var(--border-subtle);"
+                      title="System internal document template"
+                    >
+                      System
+                    </span>
                   </div>
                 </td>
               </tr>

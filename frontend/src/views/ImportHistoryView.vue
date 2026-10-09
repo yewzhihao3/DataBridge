@@ -223,6 +223,82 @@ async function goToNextPage(): Promise<void> {
   await loadImports()
 }
 
+// ── Selection & Bulk Delete State ──────────────────────────────────────────
+const selectedIds = ref<Set<number>>(new Set())
+const selectAllAcrossAllPages = ref(false)
+const showBulkDeleteModal = ref(false)
+const isBulkDeleting = ref(false)
+const bulkDeleteError = ref('')
+
+const isAllPageSelected = computed(() => {
+  if (filteredImports.value.length === 0) return false
+  return filteredImports.value.every((item) => selectedIds.value.has(item.id))
+})
+
+const isIndeterminate = computed(() => {
+  const pageSelectedCount = filteredImports.value.filter((item) =>
+    selectedIds.value.has(item.id)
+  ).length
+  return pageSelectedCount > 0 && pageSelectedCount < filteredImports.value.length
+})
+
+function toggleSelectAllPage(): void {
+  if (isAllPageSelected.value) {
+    filteredImports.value.forEach((item) => selectedIds.value.delete(item.id))
+    selectedIds.value = new Set(selectedIds.value)
+    selectAllAcrossAllPages.value = false
+  } else {
+    filteredImports.value.forEach((item) => selectedIds.value.add(item.id))
+    selectedIds.value = new Set(selectedIds.value)
+  }
+}
+
+function toggleSelect(id: number): void {
+  if (selectedIds.value.has(id)) {
+    selectedIds.value.delete(id)
+    selectAllAcrossAllPages.value = false
+  } else {
+    selectedIds.value.add(id)
+  }
+  selectedIds.value = new Set(selectedIds.value)
+}
+
+function selectAllAcrossHistory(): void {
+  selectAllAcrossAllPages.value = true
+}
+
+function clearSelection(): void {
+  selectedIds.value = new Set()
+  selectAllAcrossAllPages.value = false
+}
+
+function confirmBulkDelete(): void {
+  bulkDeleteError.value = ''
+  showBulkDeleteModal.value = true
+}
+
+function cancelBulkDelete(): void {
+  showBulkDeleteModal.value = false
+  bulkDeleteError.value = ''
+}
+
+async function executeBulkDelete(): Promise<void> {
+  isBulkDeleting.value = true
+  bulkDeleteError.value = ''
+  try {
+    const ids = Array.from(selectedIds.value)
+    await api.bulkDeleteImportBatches(ids, selectAllAcrossAllPages.value)
+    clearSelection()
+    showBulkDeleteModal.value = false
+    await loadImports()
+  } catch (error: unknown) {
+    const apiError = error as Partial<ApiError>
+    bulkDeleteError.value = apiError.message || 'Failed to delete selected import batches.'
+  } finally {
+    isBulkDeleting.value = false
+  }
+}
+
 // ── Delete Batch State ─────────────────────────────────────────────────────
 const batchToDelete = ref<ImportBatchListItem | null>(null)
 const isDeleting = ref(false)
@@ -248,6 +324,7 @@ async function deleteBatch(): Promise<void> {
     if (selectedImport.value?.id === batchToDelete.value.id) {
       closeDetails()
     }
+    if (batchToDelete.value) { selectedIds.value.delete(batchToDelete.value.id); selectedIds.value = new Set(selectedIds.value) }
     batchToDelete.value = null
     await loadImports()
   } catch (error: unknown) {
@@ -510,10 +587,61 @@ onMounted(() => {
         </span>
       </div>
 
+      <!-- Bulk Actions Toolbar -->
+      <div v-if="selectedIds.size > 0" class="bulk-actions-bar">
+        <div class="bulk-actions-left">
+          <span class="selection-pill">
+            {{ selectAllAcrossAllPages ? summary.total_imports : selectedIds.size }} Selected
+          </span>
+          <span v-if="!selectAllAcrossAllPages && summary.total_imports > filteredImports.length && isAllPageSelected" class="bulk-select-all-hint">
+            All {{ filteredImports.length }} batches on this page are selected.
+            <button class="link-btn" type="button" @click="selectAllAcrossHistory">
+              Select all {{ summary.total_imports }} imports across all pages
+            </button>
+          </span>
+          <span v-else-if="selectAllAcrossAllPages" class="bulk-select-all-hint">
+            All {{ summary.total_imports }} imports across all pages are selected.
+            <button class="link-btn" type="button" @click="selectAllAcrossAllPages = false">
+              Clear across-page selection
+            </button>
+          </span>
+        </div>
+
+        <div class="bulk-actions-right">
+          <button
+            class="btn btn-secondary btn-small"
+            type="button"
+            :disabled="isBulkDeleting"
+            @click="clearSelection"
+          >
+            Clear Selection
+          </button>
+          <button
+            class="btn btn-danger btn-small"
+            type="button"
+            :disabled="isBulkDeleting"
+            @click="confirmBulkDelete"
+          >
+            <Trash2 :size="14" />
+            Delete Selected ({{ selectAllAcrossAllPages ? summary.total_imports : selectedIds.size }})
+          </button>
+        </div>
+      </div>
+
       <div class="table-wrapper">
         <table class="imports-table">
           <thead>
             <tr>
+              <th class="checkbox-column">
+                <input
+                  type="checkbox"
+                  class="custom-checkbox"
+                  :checked="isAllPageSelected"
+                  :indeterminate="isIndeterminate"
+                  title="Select all on this page"
+                  @change="toggleSelectAllPage"
+                />
+              </th>
               <th>Batch</th>
               <th>Source File</th>
               <th>Template</th>
@@ -531,7 +659,16 @@ onMounted(() => {
             <tr
               v-for="item in filteredImports"
               :key="item.id"
+              :class="{ 'row-selected': selectedIds.has(item.id) }"
             >
+              <td class="checkbox-column">
+                <input
+                  type="checkbox"
+                  class="custom-checkbox"
+                  :checked="selectedIds.has(item.id)"
+                  @change="toggleSelect(item.id)"
+                />
+              </td>
               <td>
                 <span class="batch-id">
                   #{{ item.id }}
@@ -764,6 +901,66 @@ onMounted(() => {
             <Loader2 v-if="isDeleting" :size="15" class="animate-spin" />
             <Trash2 v-else :size="15" />
             {{ isDeleting ? 'Deleting...' : 'Delete Batch' }}
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- Bulk Delete Confirmation Modal -->
+    <div
+      v-if="showBulkDeleteModal"
+      class="details-overlay"
+      @click.self="cancelBulkDelete"
+    >
+      <div class="details-modal confirm-delete-modal">
+        <div class="modal-heading">
+          <div class="modal-title-with-icon">
+            <AlertCircle :size="22" class="error-text" />
+            <h2>Delete {{ selectAllAcrossAllPages ? summary.total_imports : selectedIds.size }} Import Batches?</h2>
+          </div>
+
+          <button
+            class="close-button"
+            type="button"
+            aria-label="Cancel deletion"
+            @click="cancelBulkDelete"
+          >
+            <X :size="20" />
+          </button>
+        </div>
+
+        <p class="modal-description">
+          Are you sure you want to delete
+          <strong>{{ selectAllAcrossAllPages ? `all ${summary.total_imports}` : selectedIds.size }}</strong>
+          import {{ (selectAllAcrossAllPages ? summary.total_imports : selectedIds.size) === 1 ? 'batch' : 'batches' }} from history?
+        </p>
+
+        <p class="modal-subtext">
+          This soft-deletes the selected batches and removes them from history, unblocking template deletion for these imports.
+        </p>
+
+        <div v-if="bulkDeleteError" class="modal-error">
+          {{ bulkDeleteError }}
+        </div>
+
+        <div class="modal-actions">
+          <button
+            class="btn btn-secondary"
+            type="button"
+            :disabled="isBulkDeleting"
+            @click="cancelBulkDelete"
+          >
+            Cancel
+          </button>
+
+          <button
+            class="btn btn-danger"
+            type="button"
+            :disabled="isBulkDeleting"
+            @click="executeBulkDelete"
+          >
+            <Loader2 v-if="isBulkDeleting" :size="15" class="animate-spin" />
+            <Trash2 v-else :size="15" />
+            {{ isBulkDeleting ? 'Deleting...' : 'Delete Batches' }}
           </button>
         </div>
       </div>
@@ -1648,5 +1845,80 @@ td.actions-column {
   .pagination-actions .btn {
     flex: 1;
   }
+}
+
+/* Checkbox & Bulk Actions Styling */
+.checkbox-column {
+  width: 44px;
+  text-align: center !important;
+  padding-left: 1rem !important;
+  padding-right: 0.5rem !important;
+}
+
+.custom-checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  accent-color: var(--accent-brand);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.row-selected {
+  background: rgba(99, 102, 241, 0.08) !important;
+}
+
+.bulk-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-focus, rgba(99, 102, 241, 0.3));
+  border-radius: var(--radius-md, 8px);
+}
+
+.bulk-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.selection-pill {
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  background: var(--accent-brand);
+  color: #fff;
+}
+
+.bulk-select-all-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent-brand);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0 0.25rem;
+}
+
+.link-btn:hover {
+  color: var(--accent-brand-hover, #4f46e5);
+}
+
+.bulk-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 </style>

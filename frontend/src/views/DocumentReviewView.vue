@@ -16,16 +16,47 @@ import {
   Plus,
   RefreshCw,
   Sparkles,
+  ArrowLeft,
+  ArrowRight,
   Trash2,
   ZoomIn,
 } from 'lucide-vue-next'
 import { api } from '@/services/api'
 import { toast } from '@/services/toast'
+import { useIngestionQueue } from '@/composables/useIngestionQueue'
 import type { DocumentDetail, DocumentLineItem } from '@/types/api'
 
 const route = useRoute()
 const router = useRouter()
 const id = Number(route.params.id)
+
+const { queue, markDocumentConfirmed } = useIngestionQueue()
+
+const reviewableEntries = computed(() => {
+  return queue.value.filter(
+    (e) => (e.status === 'needs_review' || e.status === 'ready' || e.status === 'imported') && e.reviewPath
+  )
+})
+
+const currentIndex = computed(() => {
+  return reviewableEntries.value.findIndex((e) => e.documentId === id)
+})
+
+const prevEntry = computed(() => {
+  if (currentIndex.value > 0) return reviewableEntries.value[currentIndex.value - 1]
+  return null
+})
+
+const nextEntry = computed(() => {
+  if (currentIndex.value >= 0 && currentIndex.value < reviewableEntries.value.length - 1) {
+    return reviewableEntries.value[currentIndex.value + 1]
+  }
+  return null
+})
+
+function goToEntry(entry: any) {
+  if (entry.reviewPath) router.push(entry.reviewPath)
+}
 
 const detail = ref<DocumentDetail | null>(null)
 const loading = ref(true)
@@ -275,8 +306,13 @@ async function confirmImport() {
       payment_method: form.payment_method || null,
       store_address: form.store_address || null,
     })
+    markDocumentConfirmed(id)
     toast.success(`${isReceipt.value ? 'Receipt' : 'Invoice'} imported successfully`)
-    router.push('/history')
+    if (nextEntry.value) {
+      router.push(nextEntry.value.reviewPath!)
+    } else {
+      router.push('/history')
+    }
   } catch (e: any) {
     error.value = e.message || 'Import could not be confirmed.'
     if (error.value.toLowerCase().includes('duplicate')) {
@@ -316,21 +352,54 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="document-review container">
-    <header>
-      <div>
-        <p class="eyebrow">DOCUMENT INGESTION & AUDIT</p>
-        <h1>Review Document</h1>
-        <p>Verify and correct extracted fields before confirming into system records.</p>
+    <header class="review-header glass-card">
+      <div class="header-top">
+        <router-link to="/" class="back-link">
+          <ArrowLeft :size="16" />
+          Back to Ingestion
+        </router-link>
+
+        <div v-if="reviewableEntries.length > 1" class="queue-nav">
+          <button
+            class="queue-nav-btn"
+            :disabled="!prevEntry"
+            title="Previous file in queue"
+            @click="prevEntry && goToEntry(prevEntry)"
+          >
+            <ArrowLeft :size="14" />
+            Previous
+          </button>
+          <span class="queue-nav-counter">
+            {{ currentIndex >= 0 ? currentIndex + 1 : '—' }} of {{ reviewableEntries.length }}
+          </span>
+          <button
+            class="queue-nav-btn"
+            :disabled="!nextEntry"
+            title="Next file in queue"
+            @click="nextEntry && goToEntry(nextEntry)"
+          >
+            Next
+            <ArrowRight :size="14" />
+          </button>
+        </div>
       </div>
-      <div class="type-controls">
-        <label>
-          Document type
-          <select :value="detail?.document_type" :disabled="saving" @change="changeType">
-            <option value="invoice">Invoice</option>
-            <option value="receipt">Receipt</option>
-          </select>
-        </label>
-        <span class="status">{{ detail?.status?.replace('_', ' ') || 'Loading' }}</span>
+
+      <div class="header-main">
+        <div>
+          <p class="eyebrow">DOCUMENT INGESTION & AUDIT</p>
+          <h1>Review Document</h1>
+          <p class="header-sub">Verify and correct extracted fields before confirming into system records.</p>
+        </div>
+        <div class="type-controls">
+          <label>
+            Document type
+            <select :value="detail?.document_type" :disabled="saving" @change="changeType">
+              <option value="invoice">Invoice</option>
+              <option value="receipt">Receipt</option>
+            </select>
+          </label>
+          <span class="status">{{ detail?.status?.replace('_', ' ') || 'Loading' }}</span>
+        </div>
       </div>
     </header>
 
@@ -1165,4 +1234,85 @@ th {
     flex-direction: column;
   }
 }
+
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.back-link:hover {
+  color: var(--accent-brand);
+}
+
+.queue-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle);
+  border-radius: 9999px;
+  padding: 0.25rem 0.5rem;
+}
+
+.queue-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  border-radius: 9999px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.queue-nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.queue-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.queue-nav-counter {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  padding-inline: 0.25rem;
+}
+
+.header-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.header-sub {
+  color: var(--text-secondary);
+  margin: 0.35rem 0 0 0;
+  font-size: 0.9rem;
+}
+
 </style>

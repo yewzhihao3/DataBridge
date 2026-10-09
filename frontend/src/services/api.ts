@@ -126,8 +126,15 @@ export const api = {
   async listBatchImports(): Promise<BatchImportDetail[]> { return request('/batch-imports') },
   async importReadyFiles(id: number): Promise<BatchImportDetail> { return request(`/batch-imports/${id}/import-ready`, { method: 'POST' }) },
   async removeBatchFile(id: number, fileId: number): Promise<BatchImportDetail> { return request(`/batch-imports/${id}/files/${fileId}`, { method: 'DELETE' }) },
+  async deleteBatchImport(id: number): Promise<void> { return request(`/batch-imports/${id}`, { method: 'DELETE' }) },
   async retryBatchAnalysis(id: number): Promise<BatchImportDetail> { return request(`/batch-imports/${id}/analyze`, { method: 'POST' }) },
-  async getBatchReview(id: number, fileId: number): Promise<ExtractionPreviewResponse> { return request(`/batch-imports/${id}/files/${fileId}/review`) },
+  async getBatchReview(id: number, fileId: number, templateId?: number): Promise<ExtractionPreviewResponse> {
+    const qs = templateId != null ? `?template_id=${templateId}` : ''
+    return request(`/batch-imports/${id}/files/${fileId}/review${qs}`)
+  },
+  async assignBatchTemplate(id: number, fileId: number, templateId: number): Promise<BatchImportDetail> {
+    return request(`/batch-imports/${id}/files/${fileId}/template?template_id=${templateId}`, { method: 'PATCH' })
+  },
   async acceptBatchWarnings(id: number, fileId: number): Promise<BatchImportDetail> { return request(`/batch-imports/${id}/files/${fileId}/accept-warnings`, { method: 'POST' }) },
   getImportSummary() { return request<{ total_imports: number; total_records: number; total_warnings: number }>("/imports/summary") },
   async analyzeWorkbook(file_id: number, worksheet?: string): Promise<WorkbookAnalysis> {
@@ -209,6 +216,23 @@ export const api = {
         (worksheet: { name: string }) => worksheet.name,
       ),
 
+      worksheet_info: worksheets,
+    }
+  },
+
+  async getFile(fileId: number): Promise<SourceFileUploadResponse> {
+    const response = await request<any>(`/files/${fileId}`)
+    const worksheets = Array.isArray(response.inspection?.worksheets)
+      ? response.inspection.worksheets
+      : []
+    return {
+      id: response.file_id,
+      stored_filename: response.stored_filename ?? response.original_name,
+      original_name: response.original_name,
+      file_size_bytes: response.file_size,
+      checksum_sha256: response.checksum,
+      uploaded_at: response.uploaded_at,
+      sheet_names: worksheets.map((w: { name: string }) => w.name),
       worksheet_info: worksheets,
     }
   },
@@ -344,6 +368,18 @@ export const api = {
   async deleteImportBatch(batchId: number): Promise<void> {
     return request<void>(`/imports/${batchId}`, {
       method: 'DELETE',
+    })
+  },
+
+  /** Soft-delete multiple import batches in bulk or all. */
+  async bulkDeleteImportBatches(
+    batchIds: number[],
+    deleteAll = false,
+  ): Promise<{ deleted_count: number }> {
+    return request<{ deleted_count: number }>('/imports/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ batch_ids: batchIds, delete_all: deleteAll }),
     })
   },
 

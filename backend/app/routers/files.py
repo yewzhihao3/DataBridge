@@ -172,6 +172,50 @@ async def upload_file(
 
 
 @router.get(
+    "/{file_id}",
+    response_model=FileUploadResponse,
+    summary="Get details and worksheet inspection for an uploaded file",
+)
+def get_file(file_id: int, db: Session = Depends(get_db)) -> FileUploadResponse:
+    """
+    Retrieves source file record and structural inspection by file ID.
+    """
+    source_file = db.query(SourceFile).filter(SourceFile.id == file_id).first()
+    if not source_file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File with ID {file_id} was not found.",
+        )
+
+    file_path = storage.local_path(source_file.stored_filename)
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The requested file was not found on disk storage.",
+        )
+
+    inspection_result = inspect_workbook(
+        file_path=file_path,
+        max_size_mb=settings.max_file_size_mb,
+    )
+
+    return FileUploadResponse(
+        file_id=source_file.id,
+        original_name=source_file.original_name,
+        file_size=source_file.file_size,
+        checksum=source_file.checksum,
+        uploaded_at=source_file.uploaded_at,
+        inspection=WorkbookInspectionSchema(
+            worksheets=inspection_result.worksheets,  # type: ignore[arg-type]
+            active_sheet_name=inspection_result.active_sheet_name,
+            has_formula_cells=inspection_result.has_formula_cells,
+            formula_cells=inspection_result.formula_cells,  # type: ignore[arg-type]
+            warnings=inspection_result.warnings,
+        ),
+    )
+
+
+@router.get(
     "/{file_id}/preview",
     response_model=WorksheetPreviewResponse,
     summary="Preview worksheet cell data for an uploaded file",

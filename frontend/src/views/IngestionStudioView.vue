@@ -1,575 +1,487 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '@/services/api'
-import { reviewedTemplateId } from '@/composables/useSuggestionDraft'
-import SmartSuggestionsCard from '@/components/ingestion/SmartSuggestionsCard.vue'
 import {
-  CheckCircle2,
-  AlertTriangle,
   AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
   Loader2,
+  Plus,
   RotateCcw,
   UploadCloud,
-  FileText,
+  X,
 } from 'lucide-vue-next'
-
-import FileUploadCard from '@/components/ingestion/FileUploadCard.vue'
-import TemplateSelectorCard from '@/components/ingestion/TemplateSelectorCard.vue'
-import ExtractionPreviewTable from '@/components/ingestion/ExtractionPreviewTable.vue'
-import { useImportWorkflow } from '@/composables/useImportWorkflow'
-import BatchImportReview from '@/components/ingestion/BatchImportReview.vue'
-import BatchWarningReviewModal from '@/components/ingestion/BatchWarningReviewModal.vue'
-import type { BatchImportDetail, ExtractionPreviewResponse, BatchImportFile } from '@/types/api'
+import { api } from '@/services/api'
 import { toast } from '@/services/toast'
+import {
+  useIngestionQueue,
+  formatBytes,
+  type QueueEntry,
+  type QueueStatus,
+  type DocType,
+  type FileFormat,
+  MAX_QUEUE,
+  MAX_FILE_MB,
+} from '@/composables/useIngestionQueue'
+import BatchImportReview from '@/components/ingestion/BatchImportReview.vue'
+import type { ImportBatchListItem } from '@/types/api'
+
+// ── Router ─────────────────────────────────────────────────────────────────
 const route = useRoute()
 const router = useRouter()
-const documentInput = ref<HTMLInputElement | null>(null)
-const documentUploading = ref(false)
-async function uploadDocument(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  documentUploading.value = true
+
+// ── Shared Queue State ─────────────────────────────────────────────────────
+const {
+  queue,
+  activeBatch: batch,
+  queueSummary,
+  addFiles,
+  removeEntry,
+  clearCompleted,
+  retryEntry,
+  markFileImported,
+} = useIngestionQueue()
+
+const isDragging = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+
+// ── Recent Activity ────────────────────────────────────────────────────────
+const recentBatches = ref<ImportBatchListItem[]>([])
+const recentLoading = ref(false)
+
+async function loadRecent() {
+  recentLoading.value = true
   try {
-    const result = await api.uploadDocument(file)
-    toast.success('Document uploaded — ready for review')
-    router.push({ name: 'document-review', params: { id: result.document_id } })
-  } catch (error: any) { toast.error(error.message || 'Could not process document') }
-  finally { documentUploading.value = false; if (documentInput.value) documentInput.value.value = '' }
+    recentBatches.value = await api.listImportBatches(0, 5)
+  } catch {
+    /* non-fatal */
+  } finally {
+    recentLoading.value = false
+  }
 }
 
-const {
-  currentStep,
-  uploadedFile,
-  isUploading,
-  uploadError,
+// ── Drag & Drop ────────────────────────────────────────────────────────────
+function onDragOver(e: DragEvent) {
+  e.preventDefault()
+  isDragging.value = true
+}
 
-  templates,
-  selectedTemplateId,
-  isLoadingTemplates,
-  templateError,
-
-  previewResult,
-  isExtracting,
-  extractError,
-
-  isConfirming,
-  confirmError,
-  confirmedBatch,
-  userAcknowledgedWarnings,
-
-  hasValidationErrors,
-  warningCount,
-  canConfirm,
-
-  handleFileUpload,
-  runExtraction,
-  confirmImport,
-  resetWorkflow,
-} = useImportWorkflow()
-
-onMounted(async () => {
-  if (uploadedFile.value) {
-    try {
-      templates.value = await api.listTemplates()
-      if (reviewedTemplateId.value !== null) selectedTemplateId.value = reviewedTemplateId.value
-      reviewedTemplateId.value = null
-    } catch { templateError.value = 'Could not refresh templates. Please try again.' }
+function onDragLeave(e: DragEvent) {
+  if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+    isDragging.value = false
   }
+}
+
+function onDrop(e: DragEvent) {
+  e.preventDefault()
+  isDragging.value = false
+  if (e.dataTransfer?.files?.length) {
+    addFiles(e.dataTransfer.files)
+  }
+}
+
+function onFileInputChange(e: Event) {
+  const files = (e.target as HTMLInputElement).files
+  if (files?.length) {
+    addFiles(files)
+    ;(e.target as HTMLInputElement).value = ''
+  }
+}
+
+// ── Navigation to Dedicated Review Workspace ───────────────────────────────
+function navigateReview(entry: QueueEntry) {
+  if (entry.reviewPath) {
+    router.push(entry.reviewPath)
+  } else if (entry.format === 'xlsx' && entry.fileId) {
+    if (entry.batchId) {
+      router.push(`/history/batch/${entry.batchId}/file/${entry.fileId}/review`)
+    } else {
+      router.push(`/workbooks/${entry.fileId}/review`)
+    }
+  } else if (entry.documentId) {
+    router.push(`/documents/${entry.documentId}/review`)
+  }
+}
+
+async function handleRemoveEntry(entry: QueueEntry) {
+  if (entry.batchId && entry.fileId) {
+    try {
+      await api.removeBatchFile(entry.batchId, entry.fileId)
+    } catch {
+      // non-fatal if backend batch is already updated
+    }
+  }
+  removeEntry(entry.id)
+}
+
+// ── Batch Operations ───────────────────────────────────────────────────────
+const batchBusy = ref(false)
+
+async function importBatchReady() {
+  if (!batch.value) return
+  batchBusy.value = true
+  try {
+    batch.value = await api.importReadyFiles(batch.value.id)
+    toast.success(`${batch.value.summary.imported} files imported successfully.`)
+    if (batch.value.summary.failed) {
+      toast.error(`${batch.value.summary.failed} file(s) failed import.`)
+    }
+    for (const file of batch.value.files) {
+      if (file.status === 'imported') {
+        markFileImported(file.source_file_id)
+      }
+    }
+  } catch (err: any) {
+    toast.error(err?.message || 'Batch import failed.')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function removeBatchFile(fileId: number) {
+  if (!batch.value) return
+  try {
+    batch.value = await api.removeBatchFile(batch.value.id, fileId)
+    const entry = queue.value.find(e => e.fileId === fileId)
+    if (entry) removeEntry(entry.id)
+    toast.info('File removed from batch.')
+  } catch (err: any) {
+    toast.error(err?.message || 'Failed to remove file from batch.')
+  }
+}
+
+async function retryBatch() {
+  if (!batch.value) return
+  batchBusy.value = true
+  try {
+    batch.value = await api.retryBatchAnalysis(batch.value.id)
+    toast.info('Batch analysis retried.')
+  } catch (err: any) {
+    toast.error(err?.message || 'Failed to retry batch analysis.')
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+function openBatchReview(fileId: number) {
+  if (!batch.value) return
+  router.push(`/history/batch/${batch.value.id}/file/${fileId}/review`)
+}
+
+async function dismissBatch() {
+  if (!batch.value) return
+  const batchId = batch.value.id
+  batch.value = null
+  try {
+    await api.deleteBatchImport(batchId)
+  } catch {
+    // non-fatal
+  }
+  toast.info('Batch review dismissed.')
+}
+
+// ── Mount ──────────────────────────────────────────────────────────────────
+onMounted(async () => {
+  // Resume from batch deep-link (if navigated via history batch link)
   const sessionId = Number(route.params.sessionId || route.query.batchSession)
-  const fileId = Number(route.params.fileId || route.query.fileId)
   if (sessionId) {
     try {
       batch.value = await api.getBatchImport(sessionId)
-      if (fileId) await openReview(fileId)
-    } catch { toast.error('That batch is no longer available.') }
+    } catch {
+      toast.error('That batch session is no longer available.')
+    }
   }
+
+  await loadRecent()
 })
 
-const workflowSteps = [
-  { number: 1, label: 'Upload' },
-  { number: 2, label: 'Process workbook' },
-  { number: 3, label: 'Preview' },
-  { number: 4, label: 'Confirmation' },
-]
-const templateChoice = ref<'smart' | 'manual'>('smart')
-const batchInput = ref<HTMLInputElement | null>(null)
-const batch = ref<BatchImportDetail | null>(null)
-const batchBusy = ref(false)
-const reviewPreview = ref<ExtractionPreviewResponse | null>(null)
-const reviewFile = ref<BatchImportFile | null>(null)
-async function startBatch(event: Event) {
-  const files = Array.from((event.target as HTMLInputElement).files || [])
-  if (files.length < 2) return
-  batchBusy.value = true
-  try {
-    const uploaded = await Promise.all(files.map(file => api.uploadFile(file)))
-    batch.value = await api.createBatchImport(uploaded.map(file => file.id))
-    toast.success(`${uploaded.length} files uploaded`)
-    if (batch.value.summary.review + batch.value.summary.failed) toast.warning(`${batch.value.summary.review + batch.value.summary.failed} files require review`)
-  } catch (err: any) { toast.error(err.message || 'Batch upload failed') } finally { batchBusy.value = false; if (batchInput.value) batchInput.value.value = '' }
+// ── UI Labels & Helpers ────────────────────────────────────────────────────
+const statusLabel: Record<QueueStatus, string> = {
+  queued: 'Queued',
+  uploading: 'Uploading',
+  processing: 'Processing',
+  ready: 'Ready',
+  needs_review: 'Needs Review',
+  imported: 'Imported',
+  failed: 'Failed',
 }
-async function importBatchReady() { if (!batch.value) return; batchBusy.value = true; try { batch.value = await api.importReadyFiles(batch.value.id); toast.success(`${batch.value.summary.imported} files imported`); if (batch.value.summary.failed) toast.error(`${batch.value.summary.failed} file failed`) } catch (err: any) { toast.error(err.message || 'Batch import failed') } finally { batchBusy.value = false } }
-async function removeBatchFile(fileId: number) { if (!batch.value) return; batch.value = await api.removeBatchFile(batch.value.id, fileId); toast.info('File removed from batch') }
-async function retryBatch() { if (!batch.value) return; batchBusy.value = true; try { batch.value = await api.retryBatchAnalysis(batch.value.id); toast.info('Batch analysis retried') } finally { batchBusy.value = false } }
-async function openReview(fileId: number) { if (!batch.value) return; reviewFile.value = batch.value.files.find(file => file.source_file_id === fileId) || null; if (!reviewFile.value) return; if (/\.(pdf|jpe?g|png)$/i.test(reviewFile.value.filename)) { router.push({ name: 'document-review', params: { id: fileId } }); return }; batchBusy.value = true; try { reviewPreview.value = await api.getBatchReview(batch.value.id, fileId) } catch (err: any) { toast.error(err.message || 'Could not load review') } finally { batchBusy.value = false } }
-async function acceptWarnings() { if (!batch.value || !reviewFile.value) return; batchBusy.value = true; try { batch.value = await api.acceptBatchWarnings(batch.value.id, reviewFile.value.source_file_id); reviewPreview.value = null; reviewFile.value = null; toast.success('Import completed'); if (batch.value.summary.review) toast.warning(`${batch.value.summary.review} files still need review`) } catch (err: any) { toast.error(err.message || 'Review import failed') } finally { batchBusy.value = false } }
-function selectSuggestedTemplate(id: number) { selectedTemplateId.value = id; templateChoice.value = 'smart' }
 
-/** Extract company name from preview header fields (if present) */
-const previewCompanyName = computed(() => {
-  if (!previewResult.value) return null
-  const f = previewResult.value.fields.find((f) => f.field_name === 'company_name')
-  return f?.normalized_value ? String(f.normalized_value) : null
-})
+const typeLabel: Record<DocType, string> = {
+  spreadsheet: 'Spreadsheet',
+  invoice: 'Invoice',
+  receipt: 'Receipt',
+  unknown: 'Unknown',
+}
 
-/** Extract invoice number from preview header fields (if present) */
-const previewInvoiceNumber = computed(() => {
-  if (!previewResult.value) return null
-  const f = previewResult.value.fields.find((f) => f.field_name === 'invoice_number')
-  return f?.normalized_value ? String(f.normalized_value) : null
-})
-
-/** Overall status text for the preview header */
-const overallStatusText = computed(() => {
-  if (!previewResult.value) return ''
-  if (hasValidationErrors.value) {
-    return `${previewResult.value.error_count} validation error${previewResult.value.error_count !== 1 ? 's' : ''}`
-  }
-  if (warningCount.value > 0) {
-    return `${warningCount.value} warning${warningCount.value !== 1 ? 's' : ''}`
-  }
-  return 'Ready to import'
-})
+function formatIcon(fmt: FileFormat) {
+  if (fmt === 'xlsx') return FileSpreadsheet
+  if (fmt === 'pdf') return FileText
+  return FileImage
+}
 </script>
 
 <template>
   <main class="ingestion-page container">
-    <!-- Page Header -->
+    <!-- ── Header ──────────────────────────────────────────────────────── -->
     <section class="page-header">
       <div class="page-header-content">
         <div class="eyebrow">
           <UploadCloud :size="16" />
-          DATA INGESTION
+          SMART INGESTION STUDIO
         </div>
-
-        <h1>Ingestion Studio</h1>
-
+        <h1>Smart Ingestion Studio</h1>
         <p class="page-description">
-          Upload, inspect, validate, and import business data from Excel
-          workbooks.
+          Upload, manage, and process workbooks, invoices, and receipts in one central workspace.
         </p>
       </div>
 
-      <button
-        v-if="currentStep > 1"
-        class="btn btn-secondary"
-        type="button"
-        @click="resetWorkflow"
-      >
-        <RotateCcw :size="16" />
-        Start Over
-      </button>
-    </section>
-
-    <section v-if="!uploadedFile && !batch" class="glass-card batch-entry">
-      <div><h2>Upload business files</h2><p>PDFs and images open a document review with extracted invoice fields.</p></div>
-      <button class="btn btn-primary" :disabled="documentUploading" @click="documentInput?.click()">{{ documentUploading ? 'Processing document…' : 'Choose PDF or image' }}</button>
-      <input ref="documentInput" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" class="hidden-batch-input" @change="uploadDocument" />
-    </section>
-    <section v-if="!uploadedFile && !batch" class="glass-card batch-entry">
-      <div><h2>Import multiple workbooks</h2><p>Upload up to 25 XLSX files. Each workbook is matched and reviewed independently.</p></div>
-      <button class="btn btn-secondary" :disabled="batchBusy" @click="batchInput?.click()">{{ batchBusy ? 'Uploading and analyzing…' : 'Choose batch files' }}</button>
-      <input ref="batchInput" type="file" accept=".xlsx" multiple class="hidden-batch-input" @change="startBatch" />
-    </section>
-    <BatchImportReview v-if="batch" :batch="batch" :busy="batchBusy" @import="importBatchReady" @remove="removeBatchFile" @retry="retryBatch" @review="openReview" />
-    <BatchWarningReviewModal v-if="reviewPreview && reviewFile" :filename="reviewFile.filename" :preview="reviewPreview" :busy="batchBusy" @accept="acceptWarnings" @close="reviewPreview = null; reviewFile = null" />
-
-    <!-- Workflow Progress -->
-    <section v-if="!batch" class="workflow-progress glass-card">
-      <div
-        v-for="step in workflowSteps"
-        :key="step.number"
-        class="progress-step"
-        :class="{
-          active: currentStep === step.number,
-          completed: currentStep > step.number,
-        }"
-      >
-        <div class="progress-number">
-          <CheckCircle2
-            v-if="currentStep > step.number"
-            :size="17"
-          />
-
-          <span v-else>
-            {{ step.number }}
-          </span>
-        </div>
-
-        <span class="progress-label">
-          {{ step.label }}
-        </span>
+      <div class="header-actions">
+        <button
+          v-if="queue.length"
+          class="btn btn-secondary btn-small"
+          type="button"
+          @click="clearCompleted"
+        >
+          <RotateCcw :size="14" />
+          Clear Completed
+        </button>
       </div>
     </section>
 
-    <!-- Step 1: File Upload -->
-    <FileUploadCard
-      v-if="!batch"
-      :uploaded-file="uploadedFile"
-      :is-uploading="isUploading"
-      :error="uploadError"
-      @file-selected="handleFileUpload"
-      @reset="resetWorkflow"
-    />
-
-    <!-- Step 2: Template Selection -->
-    <SmartSuggestionsCard v-if="!batch && currentStep === 2 && uploadedFile && templateChoice === 'smart'" :file-id="uploadedFile.id" :disabled="isExtracting"
-      @select="selectSuggestedTemplate" @manual="templateChoice = 'manual'" />
-    <TemplateSelectorCard
-      v-if="!batch && currentStep >= 2 && uploadedFile"
-      :templates="templates"
-      :selected-template-id="selectedTemplateId"
-      :uploaded-file="uploadedFile"
-      :is-loading="isLoadingTemplates"
-      :is-extracting="isExtracting"
-      :error="templateError || extractError"
-      :compact="templateChoice === 'smart' && currentStep === 2"
-      @update:selected-template-id="selectedTemplateId = $event"
-      @change="templateChoice = 'manual'"
-      @extract="runExtraction"
-    />
-
-    <!-- Step 3: Extraction Preview -->
+    <!-- ── Universal Upload Zone ───────────────────────────────────────── -->
     <section
-      v-if="!batch && currentStep >= 3 && previewResult"
-      class="preview-section"
+      class="upload-zone glass-card"
+      :class="{ 'upload-zone--dragging': isDragging }"
+      @dragover="onDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop"
     >
-      <!-- Zen Data Preview Header -->
-      <div class="zen-preview-header">
-        <div class="zen-preview-identity">
-          <div class="eyebrow">
-            <FileText :size="16" />
-            EXTRACTION PREVIEW
+      <div class="upload-zone-inner" @click="fileInput?.click()">
+        <div class="upload-icon-ring">
+          <UploadCloud :size="32" />
+        </div>
+        <div class="upload-copy">
+          <p class="upload-primary">Drag &amp; drop your files here</p>
+          <p class="upload-secondary">Upload one file or multiple files at once.</p>
+        </div>
+        <div class="format-pills">
+          <span class="format-pill xlsx">XLSX</span>
+          <span class="format-pill pdf">PDF</span>
+          <span class="format-pill img">JPG</span>
+          <span class="format-pill img">PNG</span>
+        </div>
+        <button
+          type="button"
+          class="btn btn-primary browse-btn"
+          :disabled="queue.length >= MAX_QUEUE"
+          @click.stop="fileInput?.click()"
+        >
+          <Plus :size="16" />
+          Browse Files
+        </button>
+        <p class="upload-limit">Up to {{ MAX_QUEUE }} files · {{ MAX_FILE_MB }} MB per file</p>
+      </div>
+
+      <input
+        ref="fileInput"
+        type="file"
+        accept=".xlsx,.pdf,.jpg,.jpeg,.png,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/pdf,image/jpeg,image/png"
+        multiple
+        class="hidden-input"
+        @change="onFileInputChange"
+      />
+    </section>
+
+    <!-- ── Processing Summary Counters ─────────────────────────────────── -->
+    <div v-if="queue.length" class="queue-summary">
+      <div class="queue-stat">
+        <span class="queue-stat-num">{{ queueSummary.total }}</span>
+        <span class="queue-stat-label">Total</span>
+      </div>
+      <div v-if="queueSummary.uploading" class="queue-stat queue-stat--active">
+        <span class="queue-stat-num">{{ queueSummary.uploading }}</span>
+        <span class="queue-stat-label">Processing</span>
+      </div>
+      <div v-if="queueSummary.ready" class="queue-stat queue-stat--ready">
+        <span class="queue-stat-num">{{ queueSummary.ready }}</span>
+        <span class="queue-stat-label">Ready</span>
+      </div>
+      <div v-if="queueSummary.needsReview" class="queue-stat queue-stat--review">
+        <span class="queue-stat-num">{{ queueSummary.needsReview }}</span>
+        <span class="queue-stat-label">Needs Review</span>
+      </div>
+      <div v-if="queueSummary.imported" class="queue-stat queue-stat--success">
+        <span class="queue-stat-num">{{ queueSummary.imported }}</span>
+        <span class="queue-stat-label">Imported</span>
+      </div>
+      <div v-if="queueSummary.failed" class="queue-stat queue-stat--error">
+        <span class="queue-stat-num">{{ queueSummary.failed }}</span>
+        <span class="queue-stat-label">Failed</span>
+      </div>
+    </div>
+
+    <!-- ── Upload Queue ────────────────────────────────────────────────── -->
+    <section v-if="queue.length" class="glass-card queue-card">
+      <div class="queue-header">
+        <h2 class="queue-title">Upload Queue</h2>
+        <span class="queue-count">{{ queue.length }} file{{ queue.length !== 1 ? 's' : '' }}</span>
+      </div>
+
+      <div class="queue-list">
+        <div
+          v-for="entry in queue"
+          :key="entry.id"
+          class="queue-row"
+          :class="`queue-row--${entry.status}`"
+        >
+          <!-- Format icon -->
+          <div class="queue-file-icon">
+            <component :is="formatIcon(entry.format)" :size="20" />
           </div>
 
-          <h2 v-if="previewCompanyName || previewInvoiceNumber">
-            <span v-if="previewCompanyName">{{ previewCompanyName }}</span>
-            <span
-              v-if="previewCompanyName && previewInvoiceNumber"
-              class="zen-invoice-number"
+          <!-- File info -->
+          <div class="queue-file-info">
+            <span class="queue-filename" :title="entry.name">{{ entry.name }}</span>
+            <div class="queue-meta">
+              <span class="format-badge">{{ entry.format.toUpperCase() }}</span>
+              <span class="type-badge">{{ typeLabel[entry.suggestedType] }}</span>
+              <span class="size-badge">{{ formatBytes(entry.size) }}</span>
+            </div>
+            <p v-if="entry.error" class="queue-error">{{ entry.error }}</p>
+          </div>
+
+          <!-- Status badge -->
+          <div class="queue-status-col">
+            <div class="queue-status-badge" :class="`status-${entry.status}`">
+              <Loader2
+                v-if="entry.status === 'uploading' || entry.status === 'processing'"
+                :size="12"
+                class="animate-spin"
+              />
+              <CheckCircle2
+                v-else-if="entry.status === 'ready' || entry.status === 'imported'"
+                :size="12"
+              />
+              <AlertCircle v-else-if="entry.status === 'failed'" :size="12" />
+              <AlertTriangle v-else-if="entry.status === 'needs_review'" :size="12" />
+              <Clock v-else-if="entry.status === 'queued'" :size="12" />
+              {{ statusLabel[entry.status] }}
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="queue-actions">
+            <button
+              v-if="entry.status === 'failed' && entry.file"
+              class="btn btn-sm btn-secondary retry-btn"
+              title="Retry upload"
+              @click="retryEntry(entry.id)"
             >
-              {{ previewInvoiceNumber }}
-            </span>
-            <span v-else-if="previewInvoiceNumber">
-              Invoice {{ previewInvoiceNumber }}
-            </span>
-          </h2>
-          <h2 v-else>Extraction Preview</h2>
+              <RotateCcw :size="12" />
+              Retry
+            </button>
+            <button
+              v-else-if="entry.status === 'needs_review' || entry.status === 'ready'"
+              class="btn btn-sm btn-primary review-link"
+              @click="navigateReview(entry)"
+            >
+              {{ entry.status === 'ready' ? 'Preview' : 'Review' }}
+              <ChevronRight :size="14" />
+            </button>
+            <button
+              v-else-if="entry.status === 'imported'"
+              class="btn btn-sm btn-ghost review-link"
+              title="View review workspace"
+              @click="navigateReview(entry)"
+            >
+              View
+              <ChevronRight :size="14" />
+            </button>
 
-          <p>
-            Review the extracted values before confirming the import.
-          </p>
-        </div>
-
-        <div class="zen-preview-status-wrap">
-          <div
-            class="zen-overall-status"
-            :class="{
-              'zen-overall-status--success': !hasValidationErrors && warningCount === 0,
-              'zen-overall-status--warning': !hasValidationErrors && warningCount > 0,
-              'zen-overall-status--error': hasValidationErrors,
-            }"
-          >
-            <CheckCircle2
-              v-if="!hasValidationErrors && warningCount === 0"
-              :size="16"
-            />
-            <AlertTriangle
-              v-else-if="!hasValidationErrors && warningCount > 0"
-              :size="16"
-            />
-            <AlertCircle
-              v-else
-              :size="16"
-            />
-            <span>{{ overallStatusText }}</span>
+            <button
+              v-if="entry.status !== 'uploading' && entry.status !== 'processing'"
+              class="btn-icon remove-btn"
+              :title="`Remove ${entry.name}`"
+              @click="handleRemoveEntry(entry)"
+            >
+              <X :size="14" />
+            </button>
           </div>
-        </div>
-      </div>
-
-      <!-- Extraction Table -->
-      <ExtractionPreviewTable
-        :fields="previewResult.fields"
-        :target-worksheet="previewResult.target_worksheet"
-        :is-multi-record="previewResult.is_multi_record"
-        :records="previewResult.records"
-        :has-line-items="previewResult.has_line_items"
-        :line-items="previewResult.line_items"
-      />
-
-      <!-- Validation Issues -->
-      <div
-        v-if="previewResult.validation_report.issues.length > 0"
-        class="glass-card issues-card"
-      >
-        <div class="card-heading">
-          <AlertTriangle :size="20" />
-          <h3>Validation Issues</h3>
-        </div>
-
-        <div class="issues-list">
-          <div
-            v-for="(issue, index) in previewResult.validation_report.issues"
-            :key="`${issue.rule_id}-${index}`"
-            class="issue-item"
-            :class="`issue-${issue.severity}`"
-          >
-            <AlertCircle :size="17" />
-
-            <div class="issue-content">
-              <strong>
-                {{ issue.rule_id }}
-
-                <span v-if="issue.field_name">
-                  — {{ issue.field_name }}
-                </span>
-              </strong>
-
-              <p>
-                {{ issue.message }}
-              </p>
-
-              <small v-if="issue.cell_ref">
-                Cell:
-                {{ issue.worksheet }}!{{ issue.cell_ref }}
-              </small>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Extraction Errors -->
-      <div
-        v-if="previewResult.errors.length > 0"
-        class="glass-card issues-card"
-      >
-        <div class="card-heading error-text">
-          <AlertCircle :size="20" />
-          <h3>Extraction Errors</h3>
-        </div>
-
-        <div class="issues-list">
-          <div
-            v-for="(error, index) in previewResult.errors"
-            :key="`${error.error_type}-${index}`"
-            class="issue-item issue-error"
-          >
-            <AlertCircle :size="17" />
-
-            <div class="issue-content">
-              <strong>
-                {{ error.error_type }}
-              </strong>
-
-              <p>
-                {{ error.message }}
-              </p>
-
-              <small v-if="error.cell_ref">
-                Cell:
-                {{ error.worksheet }}!{{ error.cell_ref }}
-              </small>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Confirmation Panel -->
-      <div class="glass-card confirmation-card">
-        <div class="card-heading">
-          <CheckCircle2 :size="20" />
-          <h3>Confirm Import</h3>
-        </div>
-
-        <!-- Validation Error Notice -->
-        <div
-          v-if="hasValidationErrors"
-          class="notice notice-error"
-        >
-          <AlertCircle :size="18" />
-
-          <div>
-            <strong>Import is blocked</strong>
-
-            <p>
-              Please resolve the validation errors before
-              confirming this import.
-            </p>
-          </div>
-        </div>
-
-        <!-- Warning Notice -->
-        <div
-          v-else-if="warningCount > 0"
-          class="notice notice-warning"
-        >
-          <AlertTriangle :size="18" />
-
-          <div>
-            <strong>
-              Warnings require acknowledgment
-            </strong>
-
-            <p>
-              Review the warnings before proceeding with
-              the import.
-            </p>
-          </div>
-        </div>
-
-        <!-- Warning Acknowledgment -->
-        <label
-          v-if="warningCount > 0 && !hasValidationErrors"
-          class="acknowledgment-checkbox"
-        >
-          <input
-            v-model="userAcknowledgedWarnings"
-            type="checkbox"
-          />
-
-          <span>
-            I have reviewed and acknowledge the validation
-            warnings.
-          </span>
-        </label>
-
-        <!-- Confirmation Error -->
-        <div
-          v-if="confirmError"
-          class="notice notice-error"
-        >
-          <AlertCircle :size="18" />
-
-          <p>
-            {{ confirmError }}
-          </p>
-        </div>
-
-        <!-- Confirmation Actions -->
-        <div class="confirmation-actions">
-          <button
-            class="btn btn-secondary"
-            type="button"
-            :disabled="isConfirming"
-            @click="resetWorkflow"
-          >
-            Cancel
-          </button>
-
-          <button
-            class="btn btn-primary"
-            type="button"
-            :disabled="!canConfirm || isConfirming"
-            @click="confirmImport"
-          >
-            <Loader2
-              v-if="isConfirming"
-              class="animate-spin"
-              :size="17"
-            />
-
-            <span v-else>
-              Confirm Import
-            </span>
-          </button>
         </div>
       </div>
     </section>
 
-    <!-- Step 4: Successful Import -->
-    <section
-      v-if="currentStep === 4 && confirmedBatch"
-      class="glass-card success-card"
-    >
-      <CheckCircle2
-        :size="48"
-        class="success-icon"
-      />
+    <!-- ── Batch Import Review (if active batch session exists) ────────── -->
+    <BatchImportReview
+      v-if="batch"
+      :batch="batch"
+      :busy="batchBusy"
+      @import="importBatchReady"
+      @remove="removeBatchFile"
+      @retry="retryBatch"
+      @review="openBatchReview"
+      @dismiss="dismissBatch"
+    />
 
-      <div class="eyebrow success-eyebrow">
-        <CheckCircle2 :size="15" />
-        IMPORT COMPLETE
+    <!-- ── Recent Activity ─────────────────────────────────────────────── -->
+    <section class="glass-card recent-card">
+      <div class="recent-header">
+        <h2 class="recent-title">Recent Activity</h2>
+        <router-link to="/history" class="btn btn-ghost btn-sm">View History</router-link>
       </div>
 
-      <h2>
-        Import Completed Successfully
-      </h2>
+      <div v-if="recentLoading" class="recent-loading">
+        <Loader2 :size="18" class="animate-spin" />
+        <span>Loading recent activity…</span>
+      </div>
 
-      <p>
-        Your workbook has been validated and imported
-        successfully.
+      <p v-else-if="!recentBatches.length" class="recent-empty">
+        No imports yet. Upload files above to get started.
       </p>
 
-      <!-- Import Details -->
-      <div class="success-details">
-        <div class="success-detail-item">
-          <span>Batch ID</span>
-          <strong>
-            #{{ confirmedBatch.id }}
-          </strong>
-        </div>
-
-        <div class="success-detail-item">
-          <span>Records Imported</span>
-          <strong>
-            {{ confirmedBatch.record_count }}
-          </strong>
-        </div>
-
-        <div class="success-detail-item">
-          <span>Warnings</span>
-          <strong>
-            {{ confirmedBatch.warning_count }}
-          </strong>
-        </div>
-
-        <div class="success-detail-item">
-          <span>Status</span>
-          <strong class="success-text">
-            {{ confirmedBatch.status }}
-          </strong>
+      <div v-else class="recent-list">
+        <div v-for="b in recentBatches" :key="b.id" class="recent-row">
+          <div class="recent-info">
+            <span class="recent-filename">{{ b.original_filename }}</span>
+            <div class="recent-meta">
+              <span>{{ b.record_count }} records</span>
+              <span v-if="b.warning_count" class="recent-warn">· {{ b.warning_count }} warnings</span>
+              <span class="recent-date">· {{ new Date(b.imported_at).toLocaleDateString() }}</span>
+            </div>
+          </div>
+          <router-link to="/history" class="btn btn-ghost btn-sm">
+            History
+            <ChevronRight :size="13" />
+          </router-link>
         </div>
       </div>
-
-      <button
-        class="btn btn-primary"
-        type="button"
-        @click="resetWorkflow"
-      >
-        Import Another File
-      </button>
     </section>
   </main>
 </template>
 
 <style scoped>
+/* ── Layout ─────────────────────────────────────────────────────── */
 .ingestion-page {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  padding-top: 2rem;
-  padding-bottom: 2rem;
+  gap: 1.75rem;
+  padding-block: 2rem;
+  max-width: 1300px;
+  margin-inline: auto;
 }
-.batch-entry{padding:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}.batch-entry h2,.batch-entry p{margin:0}.batch-entry p{margin-top:.35rem;color:var(--text-secondary)}.hidden-batch-input{display:none}
 
-/* Page Header */
-
+/* ── Page Header ─────────────────────────────────────────────────── */
 .page-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .page-header-content {
@@ -580,497 +492,388 @@ const overallStatusText = computed(() => {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-bottom: 0.5rem;
-
+  margin-bottom: 0.4rem;
   color: var(--accent-brand);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
 
 .page-header h1 {
   margin: 0;
-
   color: var(--text-primary);
-  font-size: 2rem;
+  font-size: 1.85rem;
   font-weight: 800;
   letter-spacing: -0.04em;
 }
 
 .page-description {
-  max-width: 650px;
-  margin-top: 0.5rem;
-
+  max-width: 600px;
+  margin-top: 0.4rem;
   color: var(--text-secondary);
-  font-size: 0.95rem;
-  line-height: 1.7;
+  font-size: 0.92rem;
+  line-height: 1.6;
 }
 
-/* Workflow Progress */
-
-.workflow-progress {
+.header-actions {
   display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-
-  padding: 1rem 1.5rem;
-
-  border: 1px solid var(--border-default);
-  background: var(--bg-card);
 }
 
-.progress-step {
+/* ── Upload Zone ─────────────────────────────────────────────────── */
+.upload-zone {
+  border: 2px dashed var(--border-subtle);
+  border-radius: var(--radius-lg, 16px);
+  padding: 2.25rem 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: var(--bg-card, rgba(255, 255, 255, 0.02));
+}
+
+.upload-zone:hover,
+.upload-zone--dragging {
+  border-color: var(--accent-brand);
+  background: var(--accent-brand-subtle, rgba(249, 115, 22, 0.05));
+}
+
+.upload-zone-inner {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.6rem;
-
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  font-weight: 600;
-
-  transition:
-    color 0.2s ease,
-    transform 0.2s ease;
+  gap: 0.75rem;
 }
 
-.progress-number {
+.upload-icon-ring {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: var(--accent-brand-subtle, rgba(249, 115, 22, 0.1));
+  color: var(--accent-brand);
   display: flex;
   align-items: center;
   justify-content: center;
-
-  width: 2rem;
-  height: 2rem;
-
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-full);
-
-  color: var(--text-muted);
-  font-size: 0.8rem;
-
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
 }
 
-.progress-step.active {
-  color: var(--accent-brand);
+.upload-primary {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
-.progress-step.active .progress-number {
-  border-color: var(--accent-brand);
-  background: var(--accent-brand-subtle);
-  color: var(--accent-brand);
+.upload-secondary {
+  margin: 0.2rem 0 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
-.progress-step.completed {
-  color: var(--status-success);
-}
-
-.progress-step.completed .progress-number {
-  border-color: var(--status-success);
-  background: var(--status-success-bg);
-  color: var(--status-success);
-}
-
-/* Preview Section */
-
-.preview-section {
+.format-pills {
   display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-/* Zen Preview Header */
-
-.zen-preview-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1.5rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
 }
 
-.zen-preview-identity h2 {
-  margin: 0;
-
-  color: var(--text-primary);
-  font-size: 1.5rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-}
-
-.zen-invoice-number {
-  display: inline-block;
-  margin-left: 0.5rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  letter-spacing: 0;
-}
-
-.zen-preview-identity p {
-  max-width: 700px;
-  margin-top: 0.4rem;
-
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-
-.zen-preview-status-wrap {
-  flex-shrink: 0;
-  padding-top: 0.25rem;
-}
-
-.zen-overall-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.85rem;
-  border-radius: var(--radius-full);
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.zen-overall-status--success {
-  color: var(--status-success);
-  background: var(--status-success-bg);
-  border: 1px solid var(--status-success-border);
-}
-
-.zen-overall-status--warning {
-  color: var(--status-warning);
-  background: var(--status-warning-bg);
-  border: 1px solid var(--status-warning-border);
-}
-
-.zen-overall-status--error {
-  color: var(--status-error);
-  background: var(--status-error-bg);
-  border: 1px solid var(--status-error-border);
-}
-
-/* Text Colors */
-
-.success-text {
-  color: var(--status-success) !important;
-}
-
-.warning-text {
-  color: var(--status-warning) !important;
-}
-
-.error-text {
-  color: var(--status-error) !important;
-}
-
-/* Issue and Confirmation Cards */
-
-.issues-card,
-.confirmation-card {
-  padding: 1.5rem;
-}
-
-.card-heading {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-
-  margin-bottom: 1rem;
-
-  color: var(--text-primary);
-}
-
-.card-heading h3 {
-  margin: 0;
-
-  font-size: 1rem;
+.format-pill {
+  font-size: 0.7rem;
   font-weight: 700;
+  padding: 0.15rem 0.55rem;
+  border-radius: 4px;
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.06));
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
 }
 
-.issues-list {
+.browse-btn {
+  margin-top: 0.25rem;
+}
+
+.upload-limit {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.hidden-input {
+  display: none;
+}
+
+/* ── Queue Summary ───────────────────────────────────────────────── */
+.queue-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.75rem;
+}
+
+.queue-stat {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.2rem;
 }
 
-.issue-item {
+.queue-stat-num {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.queue-stat-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.queue-stat--active .queue-stat-num {
+  color: var(--accent-brand);
+}
+
+.queue-stat--ready .queue-stat-num {
+  color: #22c55e;
+}
+
+.queue-stat--review .queue-stat-num {
+  color: #f59e0b;
+}
+
+.queue-stat--success .queue-stat-num {
+  color: #22c55e;
+}
+
+.queue-stat--error .queue-stat-num {
+  color: #ef4444;
+}
+
+/* ── Queue Card ──────────────────────────────────────────────────── */
+.queue-card {
+  padding: 1.25rem 1.5rem;
   display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-
-  padding: 0.85rem;
-
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  flex-direction: column;
+  gap: 1rem;
 }
 
-.issue-error {
-  border-color: var(--status-error-border);
-  background: var(--status-error-bg);
-  color: var(--status-error);
+.queue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.issue-warning {
-  border-color: var(--status-warning-border);
-  background: var(--status-warning-bg);
-  color: var(--status-warning);
-}
-
-.issue-info {
-  background: var(--bg-subtle);
-  color: var(--text-secondary);
-}
-
-.issue-content {
-  min-width: 0;
-}
-
-.issue-content strong {
-  color: inherit;
-  font-size: 0.85rem;
+.queue-title {
+  margin: 0;
+  font-size: 1.15rem;
   font-weight: 700;
 }
 
-.issue-content p {
-  margin-top: 0.25rem;
-
-  color: var(--text-primary);
-  font-size: 0.85rem;
-  line-height: 1.5;
-}
-
-.issue-content small {
-  display: block;
-  margin-top: 0.3rem;
-
+.queue-count {
+  font-size: 0.8rem;
+  font-weight: 600;
   color: var(--text-muted);
-  font-size: 0.75rem;
 }
 
-/* Notices */
-
-.notice {
+.queue-list {
   display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-
-  padding: 1rem;
-
-  border-radius: var(--radius-sm);
-
-  font-size: 0.85rem;
-  line-height: 1.5;
-}
-
-.notice strong {
-  display: block;
-  margin-bottom: 0.25rem;
-}
-
-.notice p {
-  margin: 0;
-}
-
-.notice-error {
-  border: 1px solid var(--status-error-border);
-  background: var(--status-error-bg);
-  color: var(--status-error);
-}
-
-.notice-warning {
-  border: 1px solid var(--status-warning-border);
-  background: var(--status-warning-bg);
-  color: var(--status-warning);
-}
-
-/* Warning Acknowledgment */
-
-.acknowledgment-checkbox {
-  display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 0.6rem;
-
-  margin-top: 1rem;
-
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  line-height: 1.5;
-
-  cursor: pointer;
 }
 
-.acknowledgment-checkbox input {
-  flex-shrink: 0;
-  margin-top: 0.2rem;
-
-  accent-color: var(--accent-brand);
-}
-
-/* Confirmation Actions */
-
-.confirmation-actions {
+.queue-row {
   display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-
-  margin-top: 1.25rem;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-subtle);
+  transition: background 0.15s ease;
 }
 
-.btn {
+.queue-row:hover {
+  background: var(--bg-card-hover, rgba(255, 255, 255, 0.05));
+}
+
+.queue-file-icon {
+  color: var(--accent-brand);
+  flex-shrink: 0;
+}
+
+.queue-file-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.queue-filename {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+}
+
+.format-badge,
+.type-badge,
+.size-badge {
+  color: var(--text-muted);
+}
+
+.queue-error {
+  margin: 0.2rem 0 0 0;
+  font-size: 0.75rem;
+  color: #ef4444;
+}
+
+.queue-status-col {
+  flex-shrink: 0;
+}
+
+.queue-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.status-ready,
+.status-imported {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.status-needs_review {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.status-failed {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.status-uploading,
+.status-processing {
+  color: var(--accent-brand);
+  background: rgba(249, 115, 22, 0.12);
+}
+
+.queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.review-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.btn-icon {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.35rem;
+  border-radius: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.btn-icon:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+/* ── Recent Activity ─────────────────────────────────────────────── */
+.recent-card {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.recent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.recent-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.recent-empty {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.recent-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
   gap: 0.5rem;
 }
 
-/* Success Card */
+.recent-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-subtle);
+}
 
-.success-card {
+.recent-info {
   display: flex;
   flex-direction: column;
-  align-items: center;
-
-  padding: 2.5rem 1.5rem;
-
-  text-align: center;
+  gap: 0.15rem;
 }
 
-.success-icon {
-  margin-bottom: 1rem;
-  color: var(--status-success);
-}
-
-.success-eyebrow {
-  margin-bottom: 0.75rem;
-  color: var(--status-success);
-}
-
-.success-card h2 {
-  margin: 0;
-
+.recent-filename {
+  font-weight: 600;
+  font-size: 0.88rem;
   color: var(--text-primary);
-  font-size: 1.5rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
 }
 
-.success-card > p {
-  max-width: 500px;
-  margin-top: 0.5rem;
-
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-
-/* Success Details */
-
-.success-details {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-
-  width: 100%;
-  max-width: 500px;
-
-  margin: 1.5rem 0;
-}
-
-.success-detail-item {
-  padding: 1rem;
-
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-
-  background: var(--bg-subtle);
-}
-
-.success-detail-item span,
-.success-detail-item strong {
-  display: block;
-}
-
-.success-detail-item span {
+.recent-meta {
+  font-size: 0.75rem;
   color: var(--text-muted);
-  font-size: 0.8rem;
 }
 
-.success-detail-item strong {
-  margin-top: 0.25rem;
-
-  color: var(--text-primary);
-  font-size: 0.95rem;
-}
-
-/* Loading Animation */
-
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Responsive Layout */
-
-@media (max-width: 768px) {
-  .ingestion-page {
-    padding-top: 1rem;
-    padding-bottom: 1rem;
-  }
-
-  .page-header {
-    flex-direction: column;
-  }
-
-  .page-header h1 {
-    font-size: 1.7rem;
-  }
-
-  .zen-preview-header {
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .zen-preview-identity h2 {
-    font-size: 1.25rem;
-  }
-
-  .workflow-progress {
-    justify-content: flex-start;
-    overflow-x: auto;
-  }
-
-  .progress-step {
-    flex-shrink: 0;
-  }
-
-  .progress-label {
-    white-space: nowrap;
-  }
-}
-
-@media (max-width: 520px) {
-  .success-details {
-    grid-template-columns: 1fr;
-  }
-
-  .confirmation-actions {
-    flex-direction: column-reverse;
-  }
-
-  .confirmation-actions .btn {
-    width: 100%;
-  }
+.recent-warn {
+  color: #f59e0b;
 }
 </style>

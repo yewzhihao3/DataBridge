@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.constants import CANONICAL_INVOICE_FIELDS_LIST, CANONICAL_LINE_ITEM_FIELDS_LIST
 from app.tenancy import get_tenant_db as get_db
 from app.models.template import Template, TemplateFieldMapping
+from app.models.invoice import ImportBatch
 from app.schemas.template import (
     TemplateCreate,
     TemplateListItem,
@@ -285,6 +286,46 @@ def delete_template(
             detail=f"Template with ID {template_id} was not found.",
         )
 
-    db.delete(template)
-    db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    if getattr(template, "file_type", "") == "document":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="System document templates cannot be deleted.",
+        )
+
+    active_batches = (
+        db.query(ImportBatch)
+        .filter(
+            ImportBatch.template_id == template_id,
+            ImportBatch.is_deleted == False,
+        )
+        .count()
+    )
+    if active_batches > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot delete template '{template.name}' because it is in use by {active_batches} active import batch(es). Please delete or clear those imports from History first.",
+        )
+
+    # Purge any soft-deleted batches referencing this template to satisfy RESTRICT foreign key constraint
+    soft_deleted_batches = (
+        db.query(ImportBatch)
+        .filter(
+            ImportBatch.template_id == template_id,
+            ImportBatch.is_deleted == True,
+        )
+        .all()
+    )
+    for b in soft_deleted_batches:
+        db.delete(b)
+    db.flush()
+
+    try:
+        db.delete(template)
+        db.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot delete template '{template.name}' because it is in use by existing imported records.",
+        ) from exc
