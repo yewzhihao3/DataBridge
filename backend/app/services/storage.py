@@ -31,8 +31,9 @@ class LocalStorageBackend:
             raise ValueError("Invalid storage key")
         return path
 
-    def new_key(self, temporary=False):
-        return (".tmp_" if temporary else "") + secrets.token_hex(16) + ".xlsx"
+    def new_key(self, temporary=False, suffix=".xlsx"):
+        # Key suffix is metadata only; the random key remains the authorization boundary.
+        return (".tmp_" if temporary else "") + secrets.token_hex(16) + suffix
 
     def delete(self, key):
         self.local_path(key).unlink(missing_ok=True)

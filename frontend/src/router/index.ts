@@ -16,6 +16,7 @@ const router = createRouter({
     },
     { path: '/history/batch/:sessionId', name: 'batch-resume', component: IngestionStudioView },
     { path: '/history/batch/:sessionId/file/:fileId/review', name: 'batch-file-review', component: IngestionStudioView },
+    { path: '/documents/:id/review', name: 'document-review', component: () => import('@/views/DocumentReviewView.vue') },
     {
       path: '/history',
       name: 'import-history',

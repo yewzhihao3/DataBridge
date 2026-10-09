@@ -20,6 +20,9 @@ openpyxl>=3.1.2
 # Without this, file upload endpoints raise a 422 error at runtime.
 python-multipart>=0.0.9
 aiofiles>=23.2.1
+Pillow>=10.0
+pypdf>=4.2
+pytesseract>=0.3.10
 
 # ── Environment ───────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0

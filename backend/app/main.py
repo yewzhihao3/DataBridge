@@ -6,6 +6,9 @@ and registers all API routers.
 """
 
 from contextlib import asynccontextmanager
+import logging
+import time
+import uuid
 from sqlalchemy import text
 from typing import AsyncGenerator
 from fastapi import FastAPI
@@ -18,6 +21,7 @@ from app.web_security import SecurityMiddleware
 from app.routers.analytics import router as analytics_router
 from app.routers.suggestions import router as suggestions_router
 from app.routers.batch_imports import router as batch_imports_router
+from app.routers.documents import router as documents_router
 from app.database import engine
 from app.routers.auth import router as auth_router
 from app.routers.workspaces import router as workspaces_router
@@ -39,12 +43,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. Verify secure deployment and versioned schema; never mutate schema here.
-    if settings.app_env == "production" and (settings.dev_public_origins.strip() or not settings.cookie_secure or not settings.frontend_url.startswith("https://") or "*" in settings.trusted_origins):
-        raise RuntimeError("Production requires HTTPS, secure cookies and explicit CORS origins")
+    settings.validate_production_security()
 
     with engine.connect() as connection:
         revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        if revision != "0003_batch_imports":
+        if revision != "0006_receipt_records":
             raise RuntimeError("Run alembic upgrade head before starting DataBridge")
 
     yield
@@ -75,6 +78,27 @@ def create_app() -> FastAPI:
 
     app.add_middleware(SecurityMiddleware)
 
+    @app.middleware("http")
+    async def request_log(request, call_next):
+        """Emit safe, correlation-friendly request logs without request data."""
+        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            logging.getLogger("databridge.request").exception(
+                "request_failed request_id=%s method=%s path=%s",
+                request_id, request.method, request.url.path,
+            )
+            raise
+        response.headers["X-Request-ID"] = request_id
+        logging.getLogger("databridge.request").info(
+            "request request_id=%s method=%s path=%s status=%s duration_ms=%d",
+            request_id, request.method, request.url.path, response.status_code,
+            (time.perf_counter() - started) * 1000,
+        )
+        return response
+
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
         # Pydantic's default input/ctx fields can echo passwords or workbook data.
@@ -94,6 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(analytics_router)
     app.include_router(suggestions_router)
     app.include_router(batch_imports_router)
+    app.include_router(documents_router)
 
     @app.get("/health", tags=["Health"])
     async def health_check() -> dict[str, str]:

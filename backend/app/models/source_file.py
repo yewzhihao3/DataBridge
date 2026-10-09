@@ -30,6 +30,10 @@ class SourceFile(Base):
     stored_filename = Column(String(255), nullable=False, unique=True, index=True)
     file_size = Column(Integer, nullable=False)
     checksum = Column(String(64), nullable=False, index=True)
+    media_type = Column(String(50), nullable=False, default="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    page_count = Column(Integer, nullable=True)
+    image_width = Column(Integer, nullable=True)
+    image_height = Column(Integer, nullable=True)
     uploaded_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     def __repr__(self) -> str:

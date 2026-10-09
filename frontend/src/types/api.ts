@@ -4,6 +4,11 @@
 
 // ── File & Inspection Types ──────────────────────────────────────────────────
 export type Confidence = 'high' | 'medium' | 'low'
+export type DocumentConfidence = Confidence
+export interface DocumentField { value?: string | null; confidence: DocumentConfidence; page?: number | null; text?: string | null }
+export interface DocumentLineItem { description?: string | null; quantity?: number | string | null; unit_price?: number | string | null; tax_rate?: number | string | null; tax_amount?: number | string | null; amount?: number | string | null }
+export interface DocumentDetail { document_id: number; status: string; document_type: string; provider: string; ocr_status: 'not_required' | 'succeeded' | 'provider_unavailable' | 'failed' | 'unsupported'; ocr_message?: string | null; processing_method: string; fields: Record<string, DocumentField>; line_items: DocumentLineItem[]; warnings: string[]; error_message?: string | null; processed_at: string }
+export interface DocumentUploadResponse { document_id: number; filename: string; media_type: string; size: number; page_count?: number | null; status: string }
 export interface MappingSuggestion extends TemplateFieldMapping {
   confidence: Confidence
   reason: string

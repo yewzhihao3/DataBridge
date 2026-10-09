@@ -1,5 +1,7 @@
 # DataBridge
 
+Document ingestion supports JPG, JPEG, PNG, and PDF invoices alongside XLSX. PDFs use text-first extraction with a replaceable local OCR provider fallback; document results are reviewed before they enter the existing invoice records. See [Milestone 14 document ingestion](docs/milestone-14-document-ingestion.md).
+
 **Business data ingestion, standardization, and analytics for messy Excel workflows.**
 
 DataBridge turns inconsistent business workbooks into standardized, searchable, exportable records. Upload an XLSX invoice or dataset, let deterministic structure detection propose a mapping or match a saved template, review validation results, and import clean records for exploration and analytics.
@@ -177,7 +179,7 @@ The included Compose stack defines PostgreSQL, FastAPI, and an nginx-served fron
 docker compose up --build
 ```
 
-See [docs/deployment.md](docs/deployment.md) for configuration, migration, and staging guidance. The Compose configuration and PostgreSQL DDL are checked, but live Docker/PostgreSQL execution has not been verified in this environment.
+See [the private staging runbook](docs/staging-deployment.md) for the selected managed architecture, configuration, migration, recovery, and QA process. The Compose configuration remains useful for local production-like checks.
 
 ## Testing
 
@@ -227,9 +229,9 @@ These are application protections, not a production-security certification. Conf
 - Ingestion accepts XLSX only; there is no PDF/image intake or OCR.
 - Smart extraction is deterministic; AI-assisted mapping is not implemented.
 - There is no billing, subscription, email delivery, public production deployment, or external integration layer.
-- Storage is local; object storage is future work.
+- Staging storage uses a private persistent disk; object storage is future work.
 - Batch analysis is synchronous and does not use distributed workers.
-- Live PostgreSQL and Docker stack execution remain to be verified in a deployment environment.
+- A live provider deployment still requires the repository owner to connect a hosting account and supply the generated staging URLs.
 
 ## Roadmap
 

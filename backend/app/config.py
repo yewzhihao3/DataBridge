@@ -7,6 +7,7 @@ variables and optional .env files.
 
 from pathlib import Path
 from typing import Literal
+import logging
 from urllib.parse import urlsplit
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     cookie_secure: bool = False
     session_hours: int = Field(24, ge=1, le=168)
@@ -33,6 +35,9 @@ class Settings(BaseSettings):
     # Uploads
     upload_dir: Path = Path("uploads")
     max_file_size_mb: int = Field(10, ge=1, le=50)
+    max_document_image_size_mb: int = Field(10, ge=1, le=50)
+    max_document_pdf_size_mb: int = Field(20, ge=1, le=50)
+    max_document_pages: int = Field(25, ge=1, le=100)
     max_batch_file_count: int = Field(25, ge=2, le=50)
     batch_analysis_concurrency: int = Field(4, ge=1, le=8)
     storage_backend: Literal["local"] = "local"
@@ -62,6 +67,20 @@ class Settings(BaseSettings):
                 origins.append(origin)
         return list(dict.fromkeys(origins))
 
+    def validate_production_security(self) -> None:
+        """Fail closed when a staging/production environment is misconfigured."""
+        if self.app_env != "production":
+            return
+        if self.dev_public_origins.strip() or not self.cookie_secure:
+            raise ValueError("Production requires secure cookies and no DEV_PUBLIC_ORIGINS")
+        origins = self.trusted_origins
+        if not self.frontend_url.startswith("https://") or not origins:
+            raise ValueError("Production requires explicit HTTPS frontend origins")
+        for origin in origins:
+            parsed = urlsplit(origin)
+            if parsed.scheme != "https" or not parsed.netloc or parsed.path not in {"", "/"} or parsed.query or parsed.fragment or "*" in origin:
+                raise ValueError("Production CORS origins must be explicit HTTPS origins")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -70,3 +89,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+logging.basicConfig(level=getattr(logging, settings.log_level), format="%(asctime)s %(levelname)s %(name)s %(message)s")

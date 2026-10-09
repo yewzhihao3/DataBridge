@@ -1,7 +1,13 @@
-# Private staging deployment
+# Deployment foundation (superseded runbook)
 
-M12 adds a single FastAPI service, Vue frontend, PostgreSQL and persistent local
-upload storage. No billing, external AI, email delivery or cloud provider is required.
+> The current M14 private-staging instructions are in
+> [staging-deployment.md](staging-deployment.md). They supersede this earlier
+> M12 foundation note for provider selection, persistent staging storage,
+> environment settings, migration release flow, recovery, and staging QA.
+
+This historical note documents the M12 local/Docker foundation. It does not by
+itself constitute a deployed staging environment. No billing, external AI, or
+email delivery is included.
 
 ## Local development
 

@@ -9,7 +9,7 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session, with_loader_criteria
 from app.database import get_db
 from app.security import Identity, current_identity, audit
-from app.models import Template, TemplateFieldMapping, SourceFile, ImportBatch, InvoiceRecord, InvoiceLineItem, ValidationErrorRecord, BatchImportSession, BatchImportFile
+from app.models import Template, TemplateFieldMapping, SourceFile, ImportBatch, InvoiceRecord, InvoiceLineItem, ValidationErrorRecord, BatchImportSession, BatchImportFile, DocumentExtraction, ReceiptRecord, ReceiptLineItem
 
 
 def get_tenant_db(identity: Identity = Depends(current_identity), db: Session = Depends(get_db)):
@@ -28,16 +28,20 @@ def scope_queries(state):
     templates = Template.__table__.alias("tenant_templates")
     batches = ImportBatch.__table__.alias("tenant_batches")
     invoices = InvoiceRecord.__table__.alias("tenant_invoices")
+    receipts = ReceiptRecord.__table__.alias("tenant_receipts")
     criteria = [
         (Template, Template.organization_id == org),
         (SourceFile, SourceFile.organization_id == org),
         (ImportBatch, ImportBatch.organization_id == org),
         (BatchImportSession, BatchImportSession.organization_id == org),
         (BatchImportFile, BatchImportFile.session_id.in_(select(BatchImportSession.id).where(BatchImportSession.organization_id == org))),
+        (DocumentExtraction, DocumentExtraction.source_file_id.in_(select(SourceFile.id).where(SourceFile.organization_id == org))),
         (TemplateFieldMapping, TemplateFieldMapping.template_id.in_(select(templates.c.id).where(templates.c.organization_id == org))),
         (InvoiceRecord, InvoiceRecord.batch_id.in_(select(batches.c.id).where(batches.c.organization_id == org))),
         (ValidationErrorRecord, ValidationErrorRecord.batch_id.in_(select(batches.c.id).where(batches.c.organization_id == org))),
         (InvoiceLineItem, InvoiceLineItem.invoice_id.in_(select(invoices.c.id).select_from(invoices.join(batches, invoices.c.batch_id == batches.c.id)).where(batches.c.organization_id == org))),
+        (ReceiptRecord, ReceiptRecord.batch_id.in_(select(batches.c.id).where(batches.c.organization_id == org))),
+        (ReceiptLineItem, ReceiptLineItem.receipt_id.in_(select(receipts.c.id).select_from(receipts.join(batches, receipts.c.batch_id == batches.c.id)).where(batches.c.organization_id == org))),
     ]
     for model, condition in criteria:
         state.statement = state.statement.options(with_loader_criteria(model, condition, include_aliases=True))
@@ -59,12 +63,18 @@ def scope_writes(db, context, instances):
             parents = [(SourceFile, obj.source_file_id), (Template, obj.template_id)]
         elif isinstance(obj, BatchImportFile):
             parents = [(BatchImportSession, obj.session_id), (SourceFile, obj.source_file_id)]
+        elif isinstance(obj, DocumentExtraction):
+            parents = [(SourceFile, obj.source_file_id)]
         elif isinstance(obj, TemplateFieldMapping):
             parents = [(Template, obj.template_id)]
         elif isinstance(obj, (InvoiceRecord, ValidationErrorRecord)):
             parents = [(ImportBatch, obj.batch_id)]
         elif isinstance(obj, InvoiceLineItem):
             parents = [(InvoiceRecord, obj.invoice_id)]
+        elif isinstance(obj, ReceiptRecord):
+            parents = [(ImportBatch, obj.batch_id)]
+        elif isinstance(obj, ReceiptLineItem):
+            parents = [(ReceiptRecord, obj.receipt_id)]
         for parent, pk in parents:
             if pk is not None and db.query(parent).filter(parent.id == pk).first() is None:
                 raise HTTPException(404, "Resource not found")

@@ -1,4 +1,5 @@
 import { sessionHeaders, session } from "./session"
+import { API_BASE, HEALTH_URL } from './apiBase'
 
 /**
  * src/services/api.ts — Typed API Client for DataBridge FastAPI backend.
@@ -28,9 +29,9 @@ import type {
   TemplateSummary,
   WorksheetPreviewResponse,
   BatchImportDetail,
+  DocumentDetail,
+  DocumentUploadResponse,
 } from '@/types/api'
-
-const API_BASE = '/api/v1'
 
 async function request<T>(
   endpoint: string,
@@ -101,6 +102,19 @@ async function request<T>(
 }
 
 export const api = {
+  async uploadDocument(file: File): Promise<DocumentUploadResponse> {
+    const body = new FormData(); body.append('file', file)
+    return request('/documents', { method: 'POST', body })
+  },
+  async getDocument(id: number): Promise<DocumentDetail> { return request(`/documents/${id}`) },
+  async reprocessDocument(id: number): Promise<DocumentDetail> { return request(`/documents/${id}/process`, { method: 'POST' }) },
+  async parseDocumentAs(id: number, document_type: 'invoice' | 'receipt'): Promise<DocumentDetail> { return request(`/documents/${id}/parse`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ document_type }) }) },
+  async confirmDocument(id: number, payload: Record<string, unknown>): Promise<{ batch_id: number; record_id: number; document_type: string; status: string }> { return request(`/documents/${id}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }) },
+  async getDocumentPreview(id: number): Promise<Blob> {
+    const response = await fetch(`${API_BASE}/documents/${id}/preview`, { credentials: 'include', headers: sessionHeaders() })
+    if (!response.ok) throw new Error('Could not load document preview.')
+    return response.blob()
+  },
   async createBatchImport(fileIds: number[]): Promise<BatchImportDetail> {
     return request('/batch-imports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_ids: fileIds }) })
   },
@@ -133,7 +147,7 @@ export const api = {
     app: string
     version: string
   }> {
-    const response = await fetch('/health')
+    const response = await fetch(HEALTH_URL)
 
     if (!response.ok) {
       throw new Error('Health check failed')
@@ -477,7 +491,7 @@ export const api = {
     if (filters.has_line_items !== undefined) qp.set('has_line_items', String(filters.has_line_items))
 
     const queryString = qp.toString()
-    const url = `/api/v1/exports/${dataset}.${format}${queryString ? `?${queryString}` : ''}`
+    const url = `${API_BASE}/exports/${dataset}.${format}${queryString ? `?${queryString}` : ''}`
 
     const res = await fetch(url, { credentials: "include", headers: sessionHeaders() })
     if (!res.ok) {

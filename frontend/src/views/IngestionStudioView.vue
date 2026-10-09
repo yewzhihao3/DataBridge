@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/services/api'
 import { reviewedTemplateId } from '@/composables/useSuggestionDraft'
 import SmartSuggestionsCard from '@/components/ingestion/SmartSuggestionsCard.vue'
@@ -23,6 +23,20 @@ import BatchWarningReviewModal from '@/components/ingestion/BatchWarningReviewMo
 import type { BatchImportDetail, ExtractionPreviewResponse, BatchImportFile } from '@/types/api'
 import { toast } from '@/services/toast'
 const route = useRoute()
+const router = useRouter()
+const documentInput = ref<HTMLInputElement | null>(null)
+const documentUploading = ref(false)
+async function uploadDocument(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  documentUploading.value = true
+  try {
+    const result = await api.uploadDocument(file)
+    toast.success('Document uploaded — ready for review')
+    router.push({ name: 'document-review', params: { id: result.document_id } })
+  } catch (error: any) { toast.error(error.message || 'Could not process document') }
+  finally { documentUploading.value = false; if (documentInput.value) documentInput.value.value = '' }
+}
 
 const {
   currentStep,
@@ -98,7 +112,7 @@ async function startBatch(event: Event) {
 async function importBatchReady() { if (!batch.value) return; batchBusy.value = true; try { batch.value = await api.importReadyFiles(batch.value.id); toast.success(`${batch.value.summary.imported} files imported`); if (batch.value.summary.failed) toast.error(`${batch.value.summary.failed} file failed`) } catch (err: any) { toast.error(err.message || 'Batch import failed') } finally { batchBusy.value = false } }
 async function removeBatchFile(fileId: number) { if (!batch.value) return; batch.value = await api.removeBatchFile(batch.value.id, fileId); toast.info('File removed from batch') }
 async function retryBatch() { if (!batch.value) return; batchBusy.value = true; try { batch.value = await api.retryBatchAnalysis(batch.value.id); toast.info('Batch analysis retried') } finally { batchBusy.value = false } }
-async function openReview(fileId: number) { if (!batch.value) return; reviewFile.value = batch.value.files.find(file => file.source_file_id === fileId) || null; if (!reviewFile.value) return; batchBusy.value = true; try { reviewPreview.value = await api.getBatchReview(batch.value.id, fileId) } catch (err: any) { toast.error(err.message || 'Could not load review') } finally { batchBusy.value = false } }
+async function openReview(fileId: number) { if (!batch.value) return; reviewFile.value = batch.value.files.find(file => file.source_file_id === fileId) || null; if (!reviewFile.value) return; if (/\.(pdf|jpe?g|png)$/i.test(reviewFile.value.filename)) { router.push({ name: 'document-review', params: { id: fileId } }); return }; batchBusy.value = true; try { reviewPreview.value = await api.getBatchReview(batch.value.id, fileId) } catch (err: any) { toast.error(err.message || 'Could not load review') } finally { batchBusy.value = false } }
 async function acceptWarnings() { if (!batch.value || !reviewFile.value) return; batchBusy.value = true; try { batch.value = await api.acceptBatchWarnings(batch.value.id, reviewFile.value.source_file_id); reviewPreview.value = null; reviewFile.value = null; toast.success('Import completed'); if (batch.value.summary.review) toast.warning(`${batch.value.summary.review} files still need review`) } catch (err: any) { toast.error(err.message || 'Review import failed') } finally { batchBusy.value = false } }
 function selectSuggestedTemplate(id: number) { selectedTemplateId.value = id; templateChoice.value = 'smart' }
 
@@ -158,6 +172,11 @@ const overallStatusText = computed(() => {
       </button>
     </section>
 
+    <section v-if="!uploadedFile && !batch" class="glass-card batch-entry">
+      <div><h2>Upload business files</h2><p>PDFs and images open a document review with extracted invoice fields.</p></div>
+      <button class="btn btn-primary" :disabled="documentUploading" @click="documentInput?.click()">{{ documentUploading ? 'Processing document…' : 'Choose PDF or image' }}</button>
+      <input ref="documentInput" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" class="hidden-batch-input" @change="uploadDocument" />
+    </section>
     <section v-if="!uploadedFile && !batch" class="glass-card batch-entry">
       <div><h2>Import multiple workbooks</h2><p>Upload up to 25 XLSX files. Each workbook is matched and reviewed independently.</p></div>
       <button class="btn btn-secondary" :disabled="batchBusy" @click="batchInput?.click()">{{ batchBusy ? 'Uploading and analyzing…' : 'Choose batch files' }}</button>

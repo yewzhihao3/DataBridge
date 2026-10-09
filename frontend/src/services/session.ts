@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { API_BASE } from './apiBase'
 
 export interface Workspace { id: number; name: string; slug: string; role: 'OWNER' | 'ADMIN' | 'MEMBER' }
 export interface SessionState {
@@ -16,7 +17,7 @@ export function sessionHeaders(): Record<string, string> {
 }
 
 export async function identityRequest<T = SessionState>(path: string, method = 'GET', body?: unknown): Promise<T> {
-  const response = await fetch(`/api/v1${path}`, {
+  const response = await fetch(`${API_BASE}${path}`, {
     method, credentials: 'include', headers: { 'Content-Type': 'application/json', ...sessionHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
   })

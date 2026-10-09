@@ -165,3 +165,42 @@ class ValidationErrorRecord(Base):
     def __repr__(self) -> str:
         return f"<ValidationErrorRecord id={self.id} rule='{self.rule_id}' severity='{self.severity}'>"
 
+
+class ReceiptRecord(Base):
+    """Normalized retail receipt data, intentionally separate from invoice analytics."""
+    __tablename__ = "receipt_records"
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("import_batches.id", ondelete="CASCADE"), nullable=False, index=True)
+    merchant_name = Column(String(255), nullable=False, index=True)
+    receipt_number = Column(String(100), nullable=False, index=True)
+    transaction_date = Column(Date, nullable=True)
+    transaction_time = Column(String(20), nullable=True)
+    currency = Column(String(10), nullable=True)
+    subtotal = Column(Numeric(12, 2), nullable=True)
+    tax_amount = Column(Numeric(12, 2), nullable=True)
+    total_amount = Column(Numeric(12, 2), nullable=True)
+    payment_method = Column(String(50), nullable=True)
+    store_address = Column(String(500), nullable=True)
+    cashier = Column(String(100), nullable=True)
+    branch = Column(String(100), nullable=True)
+    cash_paid = Column(Numeric(12, 2), nullable=True)
+    change_amount = Column(Numeric(12, 2), nullable=True)
+    raw_data = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    line_items = relationship("ReceiptLineItem", cascade="all, delete-orphan", order_by="ReceiptLineItem.source_row_number")
+
+
+class ReceiptLineItem(Base):
+    __tablename__ = "receipt_line_items"
+    id = Column(Integer, primary_key=True)
+    receipt_id = Column(Integer, ForeignKey("receipt_records.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_row_number = Column(Integer, nullable=False)
+    description = Column(String(500), nullable=True)
+    quantity = Column(Numeric(12, 4), nullable=True)
+    unit_price = Column(Numeric(12, 2), nullable=True)
+    tax_rate = Column(Numeric(8, 4), nullable=True)
+    tax_amount = Column(Numeric(12, 2), nullable=True)
+    amount = Column(Numeric(12, 2), nullable=True)
+    raw_data = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+

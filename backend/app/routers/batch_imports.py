@@ -14,6 +14,8 @@ from app.services.structure_detector import analyze_sheet, suggest_worksheet
 from app.services.template_matcher import match_templates
 from app.tenancy import get_tenant_db as get_db
 from app.routers.imports import confirm_import, extract_preview
+from app.services.document_processing import extract as extract_document, parse_document
+from app.models import DocumentExtraction
 
 router = APIRouter(prefix="/api/v1/batch-imports", tags=["Batch imports"])
 
@@ -35,6 +37,16 @@ def _detail(session):
 def _analyze(item, templates):
     item.status = "analyzing"
     try:
+        if item.source_file.media_type.startswith(("image/", "application/pdf")):
+            document = item.source_file
+            cached = item.session and None
+            result = None
+            # Upload normally creates this cache; retain this fallback for legacy source rows.
+            pages, provider, method, warnings, _ocr_status, _ocr_message = extract_document(storage.local_path(document.stored_filename), document.media_type)
+            detected_type, _confidence, fields, lines, parser_warnings = parse_document(pages)
+            item.detected_type, item.processing_method, item.status = detected_type, method, "review"
+            item.issues = [{"message": message} for message in warnings + parser_warnings] or [{"message": "Document extraction requires human review."}]
+            return
         profiles = profile_workbook(storage.local_path(item.source_file.stored_filename), settings.max_file_size_mb)
         analyses = [analyze_sheet(profile) for profile in profiles]
         selected = suggest_worksheet(profiles, analyses)

@@ -2,9 +2,10 @@
 app/models/__init__.py — Expose all ORM models.
 """
 
-from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord, ValidationErrorRecord
+from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord, ValidationErrorRecord, ReceiptRecord, ReceiptLineItem
 from app.models.source_file import SourceFile
 from app.models.batch_import import BatchImportSession, BatchImportFile
+from app.models.document import DocumentExtraction
 from app.models.template import Template, TemplateFieldMapping
 
 __all__ = [
@@ -17,6 +18,9 @@ __all__ = [
     "InvoiceRecord",
     "InvoiceLineItem",
     "ValidationErrorRecord",
+    "DocumentExtraction",
+    "ReceiptRecord",
+    "ReceiptLineItem",
 ]
 
 

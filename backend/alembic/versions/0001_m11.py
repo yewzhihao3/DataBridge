@@ -1,6 +1,11 @@
 """Frozen M11 baseline; adopt an existing complete M11 schema without data loss."""
 from alembic import op
 from sqlalchemy import inspect
+from pathlib import Path
+import sys
+# Alembic loads revision modules before env.py runs; make this frozen baseline's
+# sibling schema module resolvable for `alembic heads` and upgrades alike.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from legacy_schema import Base
 
 revision = "0001_m11"

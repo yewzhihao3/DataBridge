@@ -20,8 +20,9 @@ def test_upgrade_existing_m11_without_data_loss(tmp_path, monkeypatch, empty_ide
     engine = create_engine(url)
     legacy.Base.metadata.create_all(engine)
     if empty_identity_tables:
+        identity_tables = {"users", "organizations", "organization_memberships", "auth_sessions", "organization_invitations", "audit_events"}
         for table in Base.metadata.sorted_tables:
-            if table.name not in legacy.Base.metadata.tables:
+            if table.name in identity_tables:
                 table.create(engine)
     with engine.begin() as db:
         db.execute(text("INSERT INTO templates(id,name,template_type,file_type) VALUES(1,'Preserved','invoice','xlsx')"))
