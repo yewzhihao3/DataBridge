@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     batch_analysis_concurrency: int = Field(4, ge=1, le=8)
     storage_backend: Literal["local"] = "local"
 
+    # AI Receipt Intelligence (Milestone 15)
+    deepseek_api_key: str | None = None
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-flash"
+    ai_receipt_mode: Literal["auto", "vision_only", "local_ocr"] = "local_ocr"
+    ai_vision_timeout_seconds: int = Field(30, ge=5, le=120)
+    ai_vision_max_retries: int = Field(1, ge=0, le=5)
+
     # Database
     database_url: str = "sqlite:///./databridge.db"
 

@@ -102,12 +102,16 @@ async function request<T>(
 }
 
 export const api = {
-  async uploadDocument(file: File): Promise<DocumentUploadResponse> {
+  async uploadDocument(file: File, mode?: 'auto' | 'vision_only' | 'local_ocr'): Promise<DocumentUploadResponse> {
     const body = new FormData(); body.append('file', file)
-    return request('/documents', { method: 'POST', body })
+    const url = mode ? `/documents?mode=${mode}` : '/documents'
+    return request(url, { method: 'POST', body })
   },
   async getDocument(id: number): Promise<DocumentDetail> { return request(`/documents/${id}`) },
-  async reprocessDocument(id: number): Promise<DocumentDetail> { return request(`/documents/${id}/process`, { method: 'POST' }) },
+  async reprocessDocument(id: number, mode?: 'auto' | 'vision_only' | 'local_ocr'): Promise<DocumentDetail> {
+    const url = mode ? `/documents/${id}/process?mode=${mode}` : `/documents/${id}/process`
+    return request(url, { method: 'POST' })
+  },
   async parseDocumentAs(id: number, document_type: 'invoice' | 'receipt'): Promise<DocumentDetail> { return request(`/documents/${id}/parse`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ document_type }) }) },
   async confirmDocument(id: number, payload: Record<string, unknown>): Promise<{ batch_id: number; record_id: number; document_type: string; status: string }> { return request(`/documents/${id}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }) },
   async getDocumentPreview(id: number): Promise<Blob> {

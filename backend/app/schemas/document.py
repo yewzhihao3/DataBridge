@@ -16,6 +16,12 @@ class DocumentUploadResponse(BaseModel):
     page_count: int | None = None
     status: str
 
+class DocumentValidationItem(BaseModel):
+    severity: str  # "error" | "warning" | "info" | "success"
+    category: str  # "amounts" | "identifiers" | "dates" | "currency" | "engine" | "general"
+    message: str
+    details: str | None = None
+
 class DocumentExtractionResponse(BaseModel):
     document_id: int
     status: str
@@ -27,6 +33,8 @@ class DocumentExtractionResponse(BaseModel):
     fields: dict[str, DocumentField]
     line_items: list[dict] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    validation_items: list[DocumentValidationItem] = Field(default_factory=list)
+    ai_notes: list[str] = Field(default_factory=list)
     error_message: str | None = None
     processed_at: datetime
 
@@ -43,13 +51,25 @@ class DocumentConfirmRequest(BaseModel):
     tax_amount: Decimal | None = None
     total_amount: Decimal | None = None
     currency: str | None = Field(None, max_length=10)
+    payment_method: str | None = Field(None, max_length=50)
+    store_address: str | None = Field(None, max_length=500)
+    cash_paid: Decimal | None = None
+    change_amount: Decimal | None = None
+    service_charge: Decimal | None = None
+    discount_amount: Decimal | None = None
+    rounding_adjustment: Decimal | None = None
     line_items: list[dict] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def identifiers(self):
-        required = ("merchant_name", "receipt_number") if self.document_type == "receipt" else ("company_name", "invoice_number")
-        if self.document_type not in {"invoice", "receipt"}: raise ValueError("Select Invoice or Receipt before importing.")
-        if any(not (getattr(self, field) or "").strip() for field in required): raise ValueError(f"{required[0]} and {required[1]} are required.")
+        if self.document_type not in {"invoice", "receipt"}:
+            raise ValueError("Select Invoice or Receipt before importing.")
+        if self.document_type == "invoice":
+            if not (self.company_name or "").strip() or not (self.invoice_number or "").strip():
+                raise ValueError("company_name and invoice_number are required.")
+        elif self.document_type == "receipt":
+            if not (self.merchant_name or "").strip():
+                raise ValueError("merchant_name is required.")
         return self
 
 class DocumentParseRequest(BaseModel):
