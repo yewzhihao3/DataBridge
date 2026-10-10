@@ -593,6 +593,61 @@ export interface AnalyticsPeriod {
   invoice_value: string | null
 }
 
+export interface FinancialSummary {
+  sales_invoiced_value: string | null
+  sales_invoice_count: number
+  sales_invoices_with_total: number
+
+  purchases_invoiced_value: string | null
+  purchase_invoice_count: number
+  purchase_invoices_with_total: number
+
+  unclassified_invoice_value: string | null
+  unclassified_invoice_count: number
+  unclassified_invoices_with_total: number
+
+  income_receipts_value: string | null
+  income_receipt_count: number
+  income_receipts_with_total: number
+
+  expense_receipts_value: string | null
+  expense_receipt_count: number
+  expense_receipts_with_total: number
+
+  unclassified_receipts_value: string | null
+  unclassified_receipt_count: number
+  unclassified_receipts_with_total: number
+
+  receipt_count: number
+  receipts_with_total: number
+  receipts_without_total: number
+  receipts_without_date: number
+}
+
+export interface FinancialInvoiceTrend {
+  period: string
+  sales_count: number
+  sales_value: string | null
+  purchase_count: number
+  purchase_value: string | null
+  unclassified_count: number
+  unclassified_value: string | null
+  total_count: number
+  total_value: string | null
+}
+
+export interface FinancialReceiptTrend {
+  period: string
+  income_count: number
+  income_value: string | null
+  expense_count: number
+  expense_value: string | null
+  unclassified_count: number
+  unclassified_value: string | null
+  total_count: number
+  total_value: string | null
+}
+
 export interface DashboardResponse {
   filters: DashboardFilters
   monetary_values_available: boolean
@@ -610,4 +665,7 @@ export interface DashboardResponse {
   invoice_value_over_time: AnalyticsPeriod[]
   company_values: { company_name: string | null; invoice_count: number; invoices_with_total: number; invoice_value: string }[]
   line_item_values: { description: string | null; line_item_count: number; line_items_with_amount: number; amount: string }[]
+  financial_summary?: FinancialSummary
+  financial_invoice_trends?: FinancialInvoiceTrend[]
+  financial_receipt_trends?: FinancialReceiptTrend[]
 }
