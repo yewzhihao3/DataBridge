@@ -54,3 +54,27 @@ CANONICAL_LINE_ITEM_FIELDS_LIST: list[str] = [
     "amount",
 ]
 
+# ── Financial Direction Constants ────────────────────────────────────────────
+
+INVOICE_DIRECTIONS: frozenset[str] = frozenset([
+    "sales",
+    "purchase",
+    "unclassified",
+])
+DEFAULT_INVOICE_DIRECTION: str = "unclassified"
+
+RECEIPT_DIRECTIONS: frozenset[str] = frozenset([
+    "expense",
+    "income",
+    "unclassified",
+])
+DEFAULT_RECEIPT_DIRECTION: str = "unclassified"
+
+FINANCIAL_DIRECTIONS: frozenset[str] = frozenset([
+    "sales",
+    "purchase",
+    "expense",
+    "income",
+    "unclassified",
+])
+

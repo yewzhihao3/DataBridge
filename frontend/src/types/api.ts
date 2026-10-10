@@ -262,6 +262,7 @@ export interface InvoiceRecordRead {
   invoice_date?: string | null
   total_amount?: number | string | null
   currency?: string | null
+  direction?: 'sales' | 'purchase' | 'unclassified'
   source_worksheet: string
   source_row_number?: number | null
   custom_fields?: Record<string, any> | null
@@ -276,6 +277,42 @@ export interface InvoiceRecordUpdate {
   invoice_date?: string | null
   total_amount?: number | null
   currency?: string | null
+  direction?: 'sales' | 'purchase' | 'unclassified'
+}
+
+export interface ReceiptLineItemRead {
+  id: number
+  receipt_id: number
+  source_row_number: number
+  description?: string | null
+  quantity?: number | string | null
+  unit_price?: number | string | null
+  tax_rate?: number | string | null
+  tax_amount?: number | string | null
+  amount?: number | string | null
+  created_at: string
+}
+
+export interface ReceiptRecordRead {
+  id: number
+  batch_id: number
+  merchant_name: string
+  receipt_number?: string | null
+  transaction_date?: string | null
+  transaction_time?: string | null
+  currency?: string | null
+  subtotal?: number | string | null
+  tax_amount?: number | string | null
+  total_amount?: number | string | null
+  direction: 'expense' | 'income' | 'unclassified'
+  payment_method?: string | null
+  store_address?: string | null
+  cashier?: string | null
+  branch?: string | null
+  cash_paid?: number | string | null
+  change_amount?: number | string | null
+  created_at: string
+  line_items?: ReceiptLineItemRead[]
 }
 
 export interface ValidationErrorRecordRead {
@@ -311,6 +348,7 @@ export interface ImportBatchDetail {
   warning_count: number
   imported_at: string
   invoice_records: InvoiceRecordRead[]
+  receipt_records?: ReceiptRecordRead[]
   validation_issues: ValidationErrorRecordRead[]
   raw_data?: Record<string, any> | null
 }

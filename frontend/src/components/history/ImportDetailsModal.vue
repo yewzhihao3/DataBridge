@@ -19,6 +19,7 @@ import type {
   ImportBatchDetail,
   InvoiceRecordRead,
   InvoiceRecordUpdate,
+  ReceiptRecordRead,
 } from '@/types/api'
 
 defineProps<{
@@ -203,6 +204,73 @@ function formatLineItemCell(key: string, item: any, currency?: string | null): s
   return '—'
 }
 
+function formatDirection(dir?: string | null): string {
+  if (!dir) return 'Unclassified'
+  const map: Record<string, string> = {
+    sales: 'Sales',
+    purchase: 'Purchase',
+    expense: 'Expense',
+    income: 'Income',
+    unclassified: 'Unclassified',
+  }
+  return map[dir.toLowerCase()] || dir
+}
+
+function getDirectionBadgeClass(dir?: string | null): string {
+  if (!dir) return 'badge-neutral'
+  const norm = dir.toLowerCase()
+  if (norm === 'sales' || norm === 'income') return 'badge-success'
+  if (norm === 'purchase' || norm === 'expense') return 'badge-warning'
+  return 'badge-neutral'
+}
+
+function getReceiptInfoFields(record: ReceiptRecordRead) {
+  const entries: Array<{ key: string; label: string; value: string }> = []
+  if (record.transaction_date) {
+    entries.push({ key: 'date', label: 'Date', value: formatDate(record.transaction_date) })
+  }
+  if (record.transaction_time) {
+    entries.push({ key: 'time', label: 'Time', value: record.transaction_time })
+  }
+  if (record.currency) {
+    entries.push({ key: 'currency', label: 'Currency', value: record.currency })
+  }
+  entries.push({ key: 'direction', label: 'Direction', value: formatDirection(record.direction) })
+  if (record.payment_method) {
+    entries.push({ key: 'payment_method', label: 'Payment Method', value: record.payment_method })
+  }
+  if (record.store_address) {
+    entries.push({ key: 'address', label: 'Store Address', value: record.store_address })
+  }
+  if (record.cashier) {
+    entries.push({ key: 'cashier', label: 'Cashier', value: record.cashier })
+  }
+  if (record.branch) {
+    entries.push({ key: 'branch', label: 'Branch', value: record.branch })
+  }
+  return entries
+}
+
+function getReceiptMoneyFields(record: ReceiptRecordRead) {
+  const entries: Array<{ key: string; label: string; value: string; isTotal: boolean }> = []
+  if (record.subtotal != null) {
+    entries.push({ key: 'subtotal', label: 'Subtotal', value: formatCurrency(record.subtotal, record.currency), isTotal: false })
+  }
+  if (record.tax_amount != null) {
+    entries.push({ key: 'tax', label: 'Tax', value: formatCurrency(record.tax_amount, record.currency), isTotal: false })
+  }
+  if (record.cash_paid != null) {
+    entries.push({ key: 'cash_paid', label: 'Cash Paid', value: formatCurrency(record.cash_paid, record.currency), isTotal: false })
+  }
+  if (record.change_amount != null) {
+    entries.push({ key: 'change', label: 'Change', value: formatCurrency(record.change_amount, record.currency), isTotal: false })
+  }
+  if (record.total_amount != null) {
+    entries.push({ key: 'total', label: 'Total Amount', value: formatCurrency(record.total_amount, record.currency), isTotal: true })
+  }
+  return entries
+}
+
 // ── Custom Field Breakdown per Record ───────────────────────────────────────
 
 function getRecordInfoFields(record: InvoiceRecordRead) {
@@ -313,7 +381,7 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
       <!-- ── Modal Body ──────────────────────────────────────────────── -->
       <div class="zen-modal-body">
         <!-- Records List -->
-        <div v-if="importBatch.invoice_records.length === 0" class="zen-empty-records">
+        <div v-if="importBatch.invoice_records.length === 0 && (!importBatch.receipt_records || importBatch.receipt_records.length === 0)" class="zen-empty-records">
           <p class="text-muted">No records available for this batch.</p>
         </div>
 
@@ -396,6 +464,9 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
                       {{ record.source_worksheet }}
                       <template v-if="record.source_row_number">#{{ record.source_row_number }}</template>
                     </span>
+                    <span class="zen-direction-tag" :class="getDirectionBadgeClass(record.direction)">
+                      {{ formatDirection(record.direction) }}
+                    </span>
                   </div>
                 </div>
 
@@ -473,6 +544,99 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
                         >
                           {{ formatLineItemCell(col.key, item, record.currency) }}
                         </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <!-- ── Receipt Records List ───────────────────────────────────── -->
+        <div v-if="importBatch.receipt_records && importBatch.receipt_records.length > 0" class="zen-records-list">
+          <article
+            v-for="record in importBatch.receipt_records"
+            :key="record.id"
+            class="zen-record-card"
+          >
+            <div class="zen-record-view">
+              <!-- Record Title Bar -->
+              <div class="zen-record-header">
+                <div>
+                  <h3 class="zen-company-title">{{ record.merchant_name }}</h3>
+                  <div class="zen-invoice-number">
+                    <span>Receipt {{ record.receipt_number || 'Not provided' }}</span>
+                    <span class="zen-worksheet-tag">Document Receipt</span>
+                    <span class="zen-direction-tag" :class="getDirectionBadgeClass(record.direction)">
+                      {{ formatDirection(record.direction) }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Record Details Section -->
+              <div class="zen-details-block">
+                <div class="zen-block-title">Receipt Details</div>
+                <div class="zen-separator--subtle"></div>
+
+                <div class="zen-details-grid">
+                  <!-- Info Fields -->
+                  <div class="zen-info-col">
+                    <div
+                      v-for="entry in getReceiptInfoFields(record)"
+                      :key="entry.key"
+                      class="zen-detail-row"
+                    >
+                      <span class="zen-label">{{ entry.label }}</span>
+                      <span class="zen-value">{{ entry.value }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Financial Summary Fields -->
+                  <div v-if="getReceiptMoneyFields(record).length > 0" class="zen-money-col">
+                    <div
+                      v-for="entry in getReceiptMoneyFields(record)"
+                      :key="entry.key"
+                      class="zen-money-row"
+                      :class="{ 'zen-money-row--total': entry.isTotal }"
+                    >
+                      <span class="zen-money-label">{{ entry.label }}</span>
+                      <span class="zen-money-value">{{ entry.value }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Line Items Section -->
+              <div v-if="record.line_items && record.line_items.length > 0" class="zen-line-items-block">
+                <div class="line-items-header">
+                  <div class="zen-block-title">Line Items</div>
+                  <span class="zen-count-chip">{{ record.line_items.length }} item{{ record.line_items.length > 1 ? 's' : '' }}</span>
+                </div>
+
+                <div class="zen-table-responsive">
+                  <table class="zen-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Description</th>
+                        <th class="col-numeric">Qty</th>
+                        <th class="col-numeric">Unit Price</th>
+                        <th class="col-numeric">Tax</th>
+                        <th class="col-numeric">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="item in record.line_items" :key="item.id">
+                        <td>{{ item.source_row_number }}</td>
+                        <td>{{ item.description || '—' }}</td>
+                        <td class="col-numeric">{{ item.quantity != null ? item.quantity.toLocaleString() : '—' }}</td>
+                        <td class="col-numeric">{{ item.unit_price != null ? formatCurrency(item.unit_price, record.currency) : '—' }}</td>
+                        <td class="col-numeric">
+                          {{ item.tax_amount != null ? formatCurrency(item.tax_amount, record.currency) : (item.tax_rate != null ? `${item.tax_rate}%` : '—') }}
+                        </td>
+                        <td class="col-numeric">{{ item.amount != null ? formatCurrency(item.amount, record.currency) : '—' }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1198,5 +1362,34 @@ function getRecordMoneyFields(record: InvoiceRecordRead) {
   justify-content: space-between;
   border-top: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
+}
+
+.zen-direction-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  text-transform: capitalize;
+  margin-left: 0.35rem;
+}
+
+.badge-success {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.badge-warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.badge-neutral {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
 }
 </style>

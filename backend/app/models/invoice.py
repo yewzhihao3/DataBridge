@@ -21,6 +21,7 @@ Model Relationships:
 """
 
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -69,6 +70,12 @@ class ImportBatch(Base):
         cascade="all, delete-orphan",
         order_by="InvoiceRecord.id",
     )
+    receipt_records = relationship(
+        "ReceiptRecord",
+        back_populates="batch",
+        cascade="all, delete-orphan",
+        order_by="ReceiptRecord.id",
+    )
     validation_issues = relationship(
         "ValidationErrorRecord",
         back_populates="batch",
@@ -86,6 +93,12 @@ class InvoiceRecord(Base):
     """
 
     __tablename__ = "invoice_records"
+    __table_args__ = (
+        CheckConstraint(
+            "direction IN ('sales', 'purchase', 'unclassified')",
+            name="ck_invoice_records_direction",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     batch_id = Column(
@@ -96,6 +109,7 @@ class InvoiceRecord(Base):
     invoice_date = Column(Date, nullable=True)
     total_amount = Column(Numeric(12, 2), nullable=True)
     currency = Column(String(10), nullable=True)
+    direction = Column(String(20), nullable=False, server_default="unclassified", default="unclassified", index=True)
     source_worksheet = Column(String(100), nullable=False)
     source_row_number = Column(Integer, nullable=True)  # 1-based Excel row number for multi-record imports
     raw_data = Column(Text, nullable=False)  # JSON-encoded dictionary of raw extractions
@@ -169,6 +183,13 @@ class ValidationErrorRecord(Base):
 class ReceiptRecord(Base):
     """Normalized retail receipt data, intentionally separate from invoice analytics."""
     __tablename__ = "receipt_records"
+    __table_args__ = (
+        CheckConstraint(
+            "direction IN ('expense', 'income', 'unclassified')",
+            name="ck_receipt_records_direction",
+        ),
+    )
+
     id = Column(Integer, primary_key=True, index=True)
     batch_id = Column(Integer, ForeignKey("import_batches.id", ondelete="CASCADE"), nullable=False, index=True)
     merchant_name = Column(String(255), nullable=False, index=True)
@@ -176,6 +197,7 @@ class ReceiptRecord(Base):
     transaction_date = Column(Date, nullable=True)
     transaction_time = Column(String(20), nullable=True)
     currency = Column(String(10), nullable=True)
+    direction = Column(String(20), nullable=False, server_default="unclassified", default="unclassified", index=True)
     subtotal = Column(Numeric(12, 2), nullable=True)
     tax_amount = Column(Numeric(12, 2), nullable=True)
     total_amount = Column(Numeric(12, 2), nullable=True)
@@ -187,6 +209,8 @@ class ReceiptRecord(Base):
     change_amount = Column(Numeric(12, 2), nullable=True)
     raw_data = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    batch = relationship("ImportBatch", back_populates="receipt_records")
     line_items = relationship("ReceiptLineItem", cascade="all, delete-orphan", order_by="ReceiptLineItem.source_row_number")
 
 

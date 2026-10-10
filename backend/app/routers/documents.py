@@ -158,13 +158,14 @@ def confirm(document_id: int, payload: DocumentConfirmRequest, identity: Identit
         receipt = ReceiptRecord(
             batch_id=batch.id,
             merchant_name=payload.merchant_name,
-            receipt_number=payload.receipt_number,
+            receipt_number=payload.receipt_number or "",
             transaction_date=datetime.fromisoformat(payload.transaction_date).date() if payload.transaction_date else None,
             transaction_time=payload.transaction_time,
             subtotal=payload.subtotal,
             tax_amount=payload.tax_amount,
             total_amount=payload.total_amount,
             currency=payload.currency,
+            direction=payload.direction or "unclassified",
             payment_method=payload.payment_method,
             store_address=payload.store_address,
             cash_paid=payload.cash_paid,
@@ -175,7 +176,7 @@ def confirm(document_id: int, payload: DocumentConfirmRequest, identity: Identit
         for index, line in enumerate(payload.line_items, 1): db.add(ReceiptLineItem(receipt_id=receipt.id, source_row_number=index, description=line.get("description"), quantity=line.get("quantity"), unit_price=line.get("unit_price"), tax_rate=line.get("tax_rate"), tax_amount=line.get("tax_amount"), amount=line.get("amount"), raw_data=json.dumps(line, default=str)))
         record_id = receipt.id
     else:
-        invoice = InvoiceRecord(batch_id=batch.id, company_name=payload.company_name, invoice_number=payload.invoice_number, invoice_date=datetime.fromisoformat(payload.invoice_date).date() if payload.invoice_date else None, total_amount=payload.total_amount, currency=payload.currency, source_worksheet="Document", raw_data=raw_data)
+        invoice = InvoiceRecord(batch_id=batch.id, company_name=payload.company_name, invoice_number=payload.invoice_number, invoice_date=datetime.fromisoformat(payload.invoice_date).date() if payload.invoice_date else None, total_amount=payload.total_amount, currency=payload.currency, direction=payload.direction or "unclassified", source_worksheet="Document", raw_data=raw_data)
         db.add(invoice); db.flush()
         for index, line in enumerate(payload.line_items, 1): db.add(InvoiceLineItem(invoice_id=invoice.id, source_row_number=index, description=line.get("description"), quantity=line.get("quantity"), unit_price=line.get("unit_price"), tax_rate=line.get("tax_rate"), tax_amount=line.get("tax_amount"), amount=line.get("amount"), raw_data=json.dumps(line, default=str)))
         record_id = invoice.id

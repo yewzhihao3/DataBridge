@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     with engine.connect() as connection:
         revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        if revision != "0006_receipt_records":
+        if revision != "0007_financial_direction":
             raise RuntimeError("Run alembic upgrade head before starting DataBridge")
 
     yield

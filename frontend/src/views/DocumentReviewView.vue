@@ -71,6 +71,7 @@ const form = reactive({
   company_name: '',
   invoice_number: '',
   invoice_date: '',
+  direction: 'unclassified',
   merchant_name: '',
   receipt_number: '',
   transaction_date: '',
@@ -93,6 +94,14 @@ const isReceipt = computed(() => detail.value?.document_type === 'receipt')
 const confidence = (name: string) => detail.value?.fields[name]?.confidence || 'low'
 const source = (name: string) => detail.value?.fields[name]?.text || ''
 const isPdf = computed(() => previewUrl.value.includes('application/pdf'))
+
+function formatDirectionLabel(dir: string): string {
+  if (dir === 'sales') return 'Sales (AR)'
+  if (dir === 'purchase') return 'Purchase (AP)'
+  if (dir === 'expense') return 'Expense'
+  if (dir === 'income') return 'Income'
+  return 'Unclassified'
+}
 
 const providerInfo = computed(() => {
   if (!detail.value) return { label: 'Processing Engine', type: 'unknown', icon: Cpu, badgeClass: 'badge-muted' }
@@ -247,6 +256,7 @@ async function load() {
 
 async function changeType(event: Event) {
   const type = (event.target as HTMLSelectElement).value as 'invoice' | 'receipt'
+  form.direction = 'unclassified'
   saving.value = true
   try {
     apply(await api.parseDocumentAs(id, type))
@@ -291,6 +301,7 @@ async function confirmImport() {
   try {
     await api.confirmDocument(id, {
       ...form,
+      direction: form.direction || 'unclassified',
       document_type: detail.value?.document_type,
       total_amount: form.total_amount || null,
       subtotal: form.subtotal || null,
@@ -565,6 +576,77 @@ onBeforeUnmount(() => {
         <div v-if="error" class="notice error">
           <AlertTriangle :size="18" />
           <div>{{ error }}</div>
+        </div>
+
+        <!-- Financial Direction Classification Card -->
+        <div class="direction-card">
+          <div class="direction-header">
+            <div>
+              <span class="direction-title">Financial Direction</span>
+              <p class="direction-subtitle">Specify the business accounting context for this {{ isReceipt ? 'receipt' : 'invoice' }}.</p>
+            </div>
+            <span class="badge" :class="`badge-${form.direction}`">
+              {{ formatDirectionLabel(form.direction) }}
+            </span>
+          </div>
+
+          <div v-if="isReceipt" class="direction-options">
+            <label class="direction-opt" :class="{ selected: form.direction === 'unclassified' }">
+              <input type="radio" v-model="form.direction" value="unclassified" />
+              <div class="opt-text">
+                <span class="opt-label">Unclassified</span>
+                <span class="opt-desc">Default context; direction not specified.</span>
+              </div>
+            </label>
+            <label class="direction-opt" :class="{ selected: form.direction === 'expense' }">
+              <input type="radio" v-model="form.direction" value="expense" />
+              <div class="opt-text">
+                <span class="opt-label">Expense Receipt</span>
+                <span class="opt-desc">Business payment made. (Evidence of cash outflow; does not automatically settle invoices).</span>
+              </div>
+            </label>
+            <label class="direction-opt" :class="{ selected: form.direction === 'income' }">
+              <input type="radio" v-model="form.direction" value="income" />
+              <div class="opt-text">
+                <span class="opt-label">Income Receipt</span>
+                <span class="opt-desc">Customer payment received into business.</span>
+              </div>
+            </label>
+          </div>
+
+          <div v-else class="direction-options">
+            <label class="direction-opt" :class="{ selected: form.direction === 'unclassified' }">
+              <input type="radio" v-model="form.direction" value="unclassified" />
+              <div class="opt-text">
+                <span class="opt-label">Unclassified</span>
+                <span class="opt-desc">Default context; sales or purchase not specified.</span>
+              </div>
+            </label>
+            <label class="direction-opt" :class="{ selected: form.direction === 'sales' }">
+              <input type="radio" v-model="form.direction" value="sales" />
+              <div class="opt-text">
+                <span class="opt-label">Sales Invoice</span>
+                <span class="opt-desc">Amount billed to customer (Accounts Receivable). Does not imply payment received.</span>
+              </div>
+            </label>
+            <label class="direction-opt" :class="{ selected: form.direction === 'purchase' }">
+              <input type="radio" v-model="form.direction" value="purchase" />
+              <div class="opt-text">
+                <span class="opt-label">Purchase Invoice</span>
+                <span class="opt-desc">Amount billed by supplier (Accounts Payable). Does not imply payment made.</span>
+              </div>
+            </label>
+          </div>
+
+          <p class="direction-note">
+            <Info :size="13" />
+            <span v-if="isReceipt">
+              Receipt direction indicates business context. DataBridge does not assume invoices are settled without matching evidence.
+            </span>
+            <span v-else>
+              Sales/purchase classification records billing obligations. Invoiced amounts are strictly distinguished from actual cash movements.
+            </span>
+          </p>
         </div>
 
         <!-- Receipt Form Fields -->
@@ -1313,6 +1395,116 @@ th {
   color: var(--text-secondary);
   margin: 0.35rem 0 0 0;
   font-size: 0.9rem;
+}
+
+.direction-card {
+  background: var(--bg-surface-soft, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-lg, 12px);
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.direction-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.direction-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: block;
+}
+
+.direction-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin: 0.15rem 0 0 0;
+}
+
+.direction-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.direction-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  background: var(--bg-surface, rgba(255, 255, 255, 0.02));
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.direction-opt input[type="radio"] {
+  margin-top: 0.2rem;
+  accent-color: var(--color-primary, #6366f1);
+}
+
+.direction-opt:hover {
+  border-color: var(--border-hover, rgba(255, 255, 255, 0.15));
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.direction-opt.selected {
+  border-color: var(--color-primary, #6366f1);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.opt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.opt-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.opt-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.35;
+}
+
+.direction-note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted, #94a3b8);
+  margin: 0;
+  padding-top: 0.25rem;
+}
+
+.badge-sales, .badge-income {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-purchase, .badge-expense {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-unclassified {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
 }
 
 </style>

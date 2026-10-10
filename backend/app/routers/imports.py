@@ -27,7 +27,7 @@ from app.config import settings
 from app.services.storage import storage
 from app.constants import CANONICAL_INVOICE_FIELDS, CANONICAL_LINE_ITEM_FIELDS
 from app.tenancy import get_tenant_db as get_db
-from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord, ValidationErrorRecord
+from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord, ValidationErrorRecord, ReceiptRecord
 from app.models.source_file import SourceFile
 from app.models.template import Template
 from app.schemas.extraction import (
@@ -47,6 +47,7 @@ from app.schemas.import_batch import (
     InvoiceLineItemRead,
     InvoiceRecordRead,
     InvoiceRecordUpdate,
+    ReceiptRecordRead,
     ValidationErrorRecordRead,
 )
 
@@ -754,6 +755,7 @@ def get_import_batch(
             joinedload(ImportBatch.source_file),
             joinedload(ImportBatch.template),
             joinedload(ImportBatch.invoice_records).joinedload(InvoiceRecord.line_items),
+            joinedload(ImportBatch.receipt_records).joinedload(ReceiptRecord.line_items),
             joinedload(ImportBatch.validation_issues),
         )
         .filter(ImportBatch.id == batch_id, ImportBatch.is_deleted == False)  # noqa: E712
@@ -765,11 +767,16 @@ def get_import_batch(
             detail=f"Import batch with ID {batch_id} was not found.",
         )
 
-    # Parse raw_data from first invoice record if present
+    # Parse raw_data from first invoice or receipt record if present
     raw_dict = None
     if batch.invoice_records and batch.invoice_records[0].raw_data:
         try:
             raw_dict = json.loads(batch.invoice_records[0].raw_data)
+        except Exception:
+            raw_dict = None
+    elif batch.receipt_records and batch.receipt_records[0].raw_data:
+        try:
+            raw_dict = json.loads(batch.receipt_records[0].raw_data)
         except Exception:
             raw_dict = None
 
@@ -785,6 +792,9 @@ def get_import_batch(
         imported_at=batch.imported_at,
         invoice_records=[
             InvoiceRecordRead.model_validate(rec) for rec in batch.invoice_records
+        ],
+        receipt_records=[
+            ReceiptRecordRead.model_validate(rec) for rec in batch.receipt_records
         ],
         validation_issues=[
             ValidationErrorRecordRead.model_validate(iss)

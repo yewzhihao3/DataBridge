@@ -59,6 +59,7 @@ class DocumentConfirmRequest(BaseModel):
     discount_amount: Decimal | None = None
     rounding_adjustment: Decimal | None = None
     line_items: list[dict] = Field(default_factory=list)
+    direction: str | None = None
 
     @model_validator(mode="after")
     def identifiers(self):
@@ -70,6 +71,15 @@ class DocumentConfirmRequest(BaseModel):
         elif self.document_type == "receipt":
             if not (self.merchant_name or "").strip():
                 raise ValueError("merchant_name is required.")
+        if self.direction is not None and self.direction.strip():
+            dir_val = self.direction.strip().lower()
+            if self.document_type == "invoice" and dir_val not in {"sales", "purchase", "unclassified"}:
+                raise ValueError("Invoice direction must be 'sales', 'purchase', or 'unclassified'.")
+            elif self.document_type == "receipt" and dir_val not in {"expense", "income", "unclassified"}:
+                raise ValueError("Receipt direction must be 'expense', 'income', or 'unclassified'.")
+            self.direction = dir_val
+        else:
+            self.direction = "unclassified"
         return self
 
 class DocumentParseRequest(BaseModel):
