@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -222,7 +223,7 @@ def get_file(file_id: int, db: Session = Depends(get_db)) -> FileUploadResponse:
 )
 def preview_worksheet(
     file_id: int,
-    sheet_name: str = Query(..., min_length=1, description="Worksheet name to preview"),
+    sheet_name: str | None = Query(None, description="Worksheet name to preview"),
     max_rows: int = Query(15, ge=1, le=100, description="Max rows (1 to 100)"),
     max_cols: int = Query(10, ge=1, le=50, description="Max columns (1 to 50)"),
     db: Session = Depends(get_db),
@@ -231,6 +232,12 @@ def preview_worksheet(
     Returns a bounded 2D matrix of cell values from the specified worksheet.
     Allows previewing both visible and hidden worksheets.
     """
+    if not sheet_name or not sheet_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Worksheet name is required. Select a worksheet to preview.",
+        )
+
     source_file = db.query(SourceFile).filter(SourceFile.id == file_id).first()
     if not source_file:
         raise HTTPException(
@@ -248,7 +255,7 @@ def preview_worksheet(
     try:
         grid = get_worksheet_preview(
             file_path=file_path,
-            sheet_name=sheet_name,
+            sheet_name=sheet_name.strip(),
             max_rows=max_rows,
             max_cols=max_cols,
             max_size_mb=settings.max_file_size_mb,
@@ -258,7 +265,7 @@ def preview_worksheet(
 
         return WorksheetPreviewResponse(
             file_id=file_id,
-            sheet_name=sheet_name,
+            sheet_name=sheet_name.strip(),
             rows=grid,
             total_rows_returned=total_rows,
             total_cols_returned=total_cols,
@@ -275,6 +282,40 @@ def preview_worksheet(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+@router.get(
+    "/{file_id}/download",
+    summary="Download source file",
+)
+def download_file(
+    file_id: int,
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """
+    Downloads the original uploaded source file.
+    Preserves workspace isolation and authentication.
+    """
+    source_file = db.query(SourceFile).filter(SourceFile.id == file_id).first()
+    if not source_file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File with ID {file_id} was not found.",
+        )
+
+    file_path = storage.local_path(source_file.stored_filename)
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The requested file was not found on disk storage.",
+        )
+
+    return FileResponse(
+        file_path,
+        media_type=source_file.media_type or "application/octet-stream",
+        filename=source_file.original_name,
+        content_disposition_type="attachment",
+    )
 
 
 def _cleanup_files(*paths: Path | None) -> None:

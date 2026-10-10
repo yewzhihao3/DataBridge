@@ -4,6 +4,7 @@ import {
   AlertCircle,
   Calendar,
   Edit2,
+  ExternalLink,
   FileSpreadsheet,
   Layers,
   Loader2,
@@ -12,6 +13,7 @@ import {
   X,
 } from 'lucide-vue-next'
 
+import SourcePreviewModal from '@/components/explorer/SourcePreviewModal.vue'
 import type {
   InvoiceDetailResponse,
   InvoiceRecordUpdate,
@@ -50,6 +52,33 @@ watch(
   },
   { immediate: true },
 )
+
+const isSourcePreviewOpen = ref(false)
+
+const isDocSource = computed(() => {
+  if (props.invoice?.batch?.source_media_type) {
+    return (
+      props.invoice.batch.source_media_type.startsWith('image/') ||
+      props.invoice.batch.source_media_type === 'application/pdf'
+    )
+  }
+  if (props.invoice?.batch?.source_filename) {
+    const ext = props.invoice.batch.source_filename.toLowerCase().split('.').pop()
+    if (ext && ['pdf', 'jpg', 'jpeg', 'png', 'webp'].includes(ext)) return true
+    if (ext === 'xlsx') return false
+  }
+  if (props.invoice?.source_worksheet === 'Document') return true
+  return false
+})
+
+function handleViewSource() {
+  if (!props.invoice?.batch?.source_file_id) return
+  if (isDocSource.value) {
+    window.open(`/api/v1/documents/${props.invoice.batch.source_file_id}/preview`, '_blank', 'noopener,noreferrer')
+  } else {
+    isSourcePreviewOpen.value = true
+  }
+}
 
 function startEdit() {
   editForm.value = {
@@ -487,7 +516,19 @@ function handleKeydown(e: KeyboardEvent) {
         <div v-if="invoice.batch" class="zen-provenance-box">
           <div class="zen-provenance-item">
             <span class="prov-label">Source File</span>
-            <span class="prov-val">{{ invoice.batch.source_filename }}</span>
+            <div class="prov-file-row">
+              <span class="prov-val">{{ invoice.batch.source_filename }}</span>
+              <button
+                v-if="invoice.batch.source_file_id"
+                type="button"
+                class="btn-source-link"
+                :title="isDocSource ? 'View source document in new tab' : 'Preview source workbook'"
+                @click="handleViewSource"
+              >
+                <ExternalLink :size="12" />
+                <span>View Source</span>
+              </button>
+            </div>
           </div>
           <div class="zen-provenance-item">
             <span class="prov-label">Template</span>
@@ -504,6 +545,16 @@ function handleKeydown(e: KeyboardEvent) {
         </div>
       </div>
     </div>
+
+    <SourcePreviewModal
+      :is-open="isSourcePreviewOpen"
+      :source-file-id="invoice.batch?.source_file_id"
+      :filename="invoice.batch?.source_filename"
+      :media-type="invoice.batch?.source_media_type"
+      :initial-worksheet="invoice.source_worksheet"
+      :batch-id="invoice.batch_id"
+      @close="isSourcePreviewOpen = false"
+    />
   </div>
 </template>
 
@@ -927,5 +978,30 @@ function handleKeydown(e: KeyboardEvent) {
 
 .text-muted {
   color: var(--text-muted);
+}
+
+.prov-file-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm, 0.25rem);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--accent-primary, #2563eb);
+  background: var(--bg-elevated, #eff6ff);
+  border: 1px solid var(--border-subtle, #bfdbfe);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.btn-source-link:hover {
+  background: var(--border-medium, #dbeafe);
 }
 </style>

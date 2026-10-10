@@ -108,6 +108,14 @@ def preview(document_id: int, db: Session = Depends(get_db)):
     if not path.exists(): raise HTTPException(404, "Document is unavailable.")
     return FileResponse(path, media_type=source.media_type, filename=source.original_name, content_disposition_type="inline")
 
+@router.get("/{document_id}/download")
+def download_document(document_id: int, db: Session = Depends(get_db)):
+    source = db.query(SourceFile).filter_by(id=document_id).first()
+    if not source: raise HTTPException(404, "Document not found.")
+    path = storage.local_path(source.stored_filename)
+    if not path.exists(): raise HTTPException(404, "Document is unavailable.")
+    return FileResponse(path, media_type=source.media_type, filename=source.original_name, content_disposition_type="attachment")
+
 @router.post("/{document_id}/process", response_model=DocumentExtractionResponse)
 def reprocess(document_id: int, mode: str | None = None, identity: Identity = Depends(current_identity), db: Session = Depends(get_db)):
     if mode and mode not in {"auto", "vision_only", "local_ocr"}:

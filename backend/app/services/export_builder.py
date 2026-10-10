@@ -7,6 +7,7 @@ Handles:
 - Sanitization for spreadsheet formula injection in CSV
 - Typed cell writing in XLSX (numbers, dates, percentages)
 - Auto-fit column widths, freeze panes, autofilter in XLSX
+- Exports for Invoices, Line Items, Receipts, and Unified Documents
 """
 
 from __future__ import annotations
@@ -20,11 +21,11 @@ from typing import Any
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from sqlalchemy import or_
+from sqlalchemy import func, literal, or_
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord
-from app.services.business_query import active_record_scope, invoice_filter_conditions
+from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord, ReceiptLineItem, ReceiptRecord
+from app.services.business_query import active_record_scope, invoice_filter_conditions, receipt_filter_conditions
 from app.models.source_file import SourceFile
 from app.models.template import Template
 
@@ -37,6 +38,13 @@ FRIENDLY_LABELS: dict[str, str] = {
     "invoice_date": "Invoice Date",
     "currency": "Currency",
     "total_amount": "Total Amount",
+    "direction": "Direction",
+    "merchant_name": "Merchant Name",
+    "receipt_number": "Receipt Number",
+    "transaction_date": "Transaction Date",
+    "transaction_time": "Transaction Time",
+    "payment_method": "Payment Method",
+    "store_address": "Store Address",
     "description": "Description",
     "quantity": "Quantity",
     "unit_price": "Unit Price",
@@ -108,6 +116,7 @@ def build_invoices_export_query(
     search: str | None = None,
     company: str | None = None,
     currency: str | None = None,
+    direction: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     has_line_items: bool | None = None,
@@ -134,7 +143,7 @@ def build_invoices_export_query(
             )
         )
 
-    query = query.filter(*invoice_filter_conditions(company, currency, date_from, date_to))
+    query = query.filter(*invoice_filter_conditions(company, currency, date_from, date_to, direction))
 
     if has_line_items is not None:
         if has_line_items:
@@ -143,6 +152,56 @@ def build_invoices_export_query(
             query = query.filter(~InvoiceRecord.line_items.any())
 
     return query.order_by(InvoiceRecord.invoice_date.desc().nulls_last(), InvoiceRecord.id.asc())
+
+
+def build_receipts_export_query(
+    db: Session,
+    search: str | None = None,
+    merchant: str | None = None,
+    receipt_number: str | None = None,
+    currency: str | None = None,
+    direction: str | None = None,
+    payment_method: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+):
+    """
+    Builds the SQLAlchemy query for receipt export with soft-delete filtering.
+    """
+    query = (
+        db.query(ReceiptRecord)
+        .options(
+            joinedload(ReceiptRecord.batch).joinedload(ImportBatch.source_file),
+            joinedload(ReceiptRecord.batch).joinedload(ImportBatch.template),
+        )
+        .join(ReceiptRecord.batch)
+        .filter(active_record_scope())
+    )
+
+    if search and search.strip():
+        search_term = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                ReceiptRecord.merchant_name.ilike(search_term),
+                ReceiptRecord.receipt_number.ilike(search_term),
+            )
+        )
+
+    if receipt_number and receipt_number.strip():
+        query = query.filter(ReceiptRecord.receipt_number.ilike(f"%{receipt_number.strip()}%"))
+
+    query = query.filter(
+        *receipt_filter_conditions(
+            merchant=merchant,
+            currency=currency,
+            direction=direction,
+            payment_method=payment_method,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    )
+
+    return query.order_by(ReceiptRecord.transaction_date.desc().nulls_last(), ReceiptRecord.id.asc())
 
 
 def build_line_items_export_query(
@@ -186,9 +245,131 @@ def build_line_items_export_query(
     )
 
 
+def fetch_documents_export_data(
+    db: Session,
+    search: str | None = None,
+    document_type: str | None = None,
+    direction: str | None = None,
+    currency: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Fetches unified financial document rows (invoices and receipts) for export.
+    """
+    inv_li_count = (
+        db.query(InvoiceLineItem.invoice_id, func.count(InvoiceLineItem.id).label("cnt"))
+        .group_by(InvoiceLineItem.invoice_id)
+        .subquery()
+    )
+    rec_li_count = (
+        db.query(ReceiptLineItem.receipt_id, func.count(ReceiptLineItem.id).label("cnt"))
+        .group_by(ReceiptLineItem.receipt_id)
+        .subquery()
+    )
+
+    queries = []
+    include_invoices = document_type in {None, "", "all", "invoice"}
+    include_receipts = document_type in {None, "", "all", "receipt"}
+
+    if include_invoices:
+        q_inv = (
+            db.query(
+                literal("Invoice").label("doc_type"),
+                InvoiceRecord.id.label("record_id"),
+                InvoiceRecord.invoice_number.label("document_number"),
+                InvoiceRecord.company_name.label("counterparty"),
+                InvoiceRecord.invoice_date.label("document_date"),
+                InvoiceRecord.currency.label("currency"),
+                InvoiceRecord.total_amount.label("total_amount"),
+                InvoiceRecord.direction.label("direction"),
+                SourceFile.original_name.label("source_filename"),
+                ImportBatch.status.label("status"),
+                ImportBatch.imported_at.label("imported_at"),
+            )
+            .join(InvoiceRecord.batch)
+            .outerjoin(ImportBatch.source_file)
+            .outerjoin(inv_li_count, InvoiceRecord.id == inv_li_count.c.invoice_id)
+            .filter(active_record_scope())
+        )
+        queries.append(q_inv)
+
+    if include_receipts:
+        q_rec = (
+            db.query(
+                literal("Receipt").label("doc_type"),
+                ReceiptRecord.id.label("record_id"),
+                ReceiptRecord.receipt_number.label("document_number"),
+                ReceiptRecord.merchant_name.label("counterparty"),
+                ReceiptRecord.transaction_date.label("document_date"),
+                ReceiptRecord.currency.label("currency"),
+                ReceiptRecord.total_amount.label("total_amount"),
+                ReceiptRecord.direction.label("direction"),
+                SourceFile.original_name.label("source_filename"),
+                ImportBatch.status.label("status"),
+                ImportBatch.imported_at.label("imported_at"),
+            )
+            .join(ReceiptRecord.batch)
+            .outerjoin(ImportBatch.source_file)
+            .outerjoin(rec_li_count, ReceiptRecord.id == rec_li_count.c.receipt_id)
+            .filter(active_record_scope())
+        )
+        queries.append(q_rec)
+
+    if not queries:
+        return []
+
+    if len(queries) == 1:
+        union_subq = queries[0].subquery()
+    else:
+        union_subq = queries[0].union_all(queries[1]).subquery()
+
+    doc_query = db.query(union_subq)
+
+    if search and search.strip():
+        search_term = f"%{search.strip()}%"
+        doc_query = doc_query.filter(
+            or_(
+                union_subq.c.counterparty.ilike(search_term),
+                union_subq.c.document_number.ilike(search_term),
+            )
+        )
+
+    if direction and direction.strip() and direction.strip().lower() != "all":
+        doc_query = doc_query.filter(union_subq.c.direction == direction.strip().lower())
+
+    if currency and currency.strip():
+        doc_query = doc_query.filter(union_subq.c.currency == currency.strip().upper())
+
+    if date_from:
+        doc_query = doc_query.filter(union_subq.c.document_date >= date_from)
+
+    if date_to:
+        doc_query = doc_query.filter(union_subq.c.document_date <= date_to)
+
+    doc_query = doc_query.order_by(union_subq.c.document_date.desc().nulls_last(), union_subq.c.record_id.desc())
+
+    rows = doc_query.all()
+    results = []
+    for r in rows:
+        results.append({
+            "doc_type": r.doc_type,
+            "record_id": r.record_id,
+            "document_number": r.document_number or ("Not provided" if r.doc_type == "Receipt" else ""),
+            "counterparty": r.counterparty,
+            "document_date": r.document_date,
+            "currency": r.currency,
+            "total_amount": r.total_amount,
+            "direction": r.direction or "unclassified",
+            "source_filename": r.source_filename or "",
+            "status": r.status or "imported",
+            "imported_at": r.imported_at,
+        })
+    return results
+
+
 # ── Custom Field Discovery ────────────────────────────────────────────────────
 
-# Standard preferred ordering for discovered custom fields
 KNOWN_CUSTOM_ORDER = [
     "due_date",
     "sub_total",
@@ -217,7 +398,6 @@ def discover_custom_keys(records_custom_fields: list[dict[str, Any] | None]) -> 
                 if k:
                     discovered.add(k)
 
-    # Deterministic sorting: known keys first, then alphabetical
     def sort_key(k: str) -> tuple[int, str]:
         lower_k = k.lower().replace("-", "_")
         if lower_k in KNOWN_CUSTOM_ORDER:
@@ -234,13 +414,13 @@ def generate_invoices_csv(records: list[InvoiceRecord]) -> str:
     """Generates standard CSV for invoice records."""
     custom_keys = discover_custom_keys([r.custom_fields for r in records])
 
-    # Build Header
     headers = [
         "Company Name",
         "Invoice Number",
         "Invoice Date",
         "Currency",
         "Total Amount",
+        "Direction",
     ]
     for ck in custom_keys:
         headers.append(friendly_label(ck))
@@ -262,9 +442,9 @@ def generate_invoices_csv(records: list[InvoiceRecord]) -> str:
             rec.invoice_date.isoformat() if rec.invoice_date else "",
             sanitize_csv_value(rec.currency or ""),
             str(rec.total_amount) if rec.total_amount is not None else "",
+            sanitize_csv_value(rec.direction or "unclassified"),
         ]
 
-        # Custom fields
         cf = rec.custom_fields or {}
         for ck in custom_keys:
             raw_val = cf.get(ck)
@@ -284,11 +464,96 @@ def generate_invoices_csv(records: list[InvoiceRecord]) -> str:
     return output.getvalue()
 
 
+def generate_receipts_csv(records: list[ReceiptRecord]) -> str:
+    """Generates standard CSV for receipt records."""
+    headers = [
+        "Merchant Name",
+        "Receipt Number",
+        "Transaction Date",
+        "Transaction Time",
+        "Direction",
+        "Currency",
+        "Subtotal",
+        "Tax Amount",
+        "Total Amount",
+        "Payment Method",
+        "Store Address",
+        "Source File",
+        "Imported At",
+    ]
+
+    output = io.StringIO()
+    writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow([sanitize_csv_value(v) for v in headers])
+
+    for rec in records:
+        batch = rec.batch
+        src_file_name = batch.source_file.original_name if (batch and batch.source_file) else ""
+        imported_at_str = batch.imported_at.strftime("%Y-%m-%d %H:%M:%S") if (batch and batch.imported_at) else ""
+
+        row: list[Any] = [
+            sanitize_csv_value(rec.merchant_name),
+            sanitize_csv_value(rec.receipt_number or "Not provided"),
+            rec.transaction_date.isoformat() if rec.transaction_date else "",
+            sanitize_csv_value(rec.transaction_time or ""),
+            sanitize_csv_value(rec.direction or "unclassified"),
+            sanitize_csv_value(rec.currency or ""),
+            str(rec.subtotal) if rec.subtotal is not None else "",
+            str(rec.tax_amount) if rec.tax_amount is not None else "",
+            str(rec.total_amount) if rec.total_amount is not None else "",
+            sanitize_csv_value(rec.payment_method or ""),
+            sanitize_csv_value(rec.store_address or ""),
+            sanitize_csv_value(src_file_name),
+            imported_at_str,
+        ]
+        writer.writerow(row)
+
+    return output.getvalue()
+
+
+def generate_documents_csv(docs: list[dict[str, Any]]) -> str:
+    """Generates standard CSV for unified document headers."""
+    headers = [
+        "Date",
+        "Document Type",
+        "Document Number",
+        "Counterparty",
+        "Direction",
+        "Currency",
+        "Total Amount",
+        "Status",
+        "Source File",
+        "Imported At",
+    ]
+
+    output = io.StringIO()
+    writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow([sanitize_csv_value(v) for v in headers])
+
+    for d in docs:
+        doc_date = d["document_date"].isoformat() if d["document_date"] else ""
+        imported_at_str = d["imported_at"].strftime("%Y-%m-%d %H:%M:%S") if d.get("imported_at") else ""
+        row = [
+            doc_date,
+            sanitize_csv_value(d["doc_type"]),
+            sanitize_csv_value(d["document_number"]),
+            sanitize_csv_value(d["counterparty"]),
+            sanitize_csv_value(d["direction"]),
+            sanitize_csv_value(d["currency"] or ""),
+            str(d["total_amount"]) if d["total_amount"] is not None else "",
+            sanitize_csv_value(d["status"]),
+            sanitize_csv_value(d["source_filename"]),
+            imported_at_str,
+        ]
+        writer.writerow(row)
+
+    return output.getvalue()
+
+
 def generate_line_items_csv(items: list[InvoiceLineItem]) -> str:
     """Generates standard CSV for flattened line items."""
     custom_keys = discover_custom_keys([li.custom_fields for li in items])
 
-    # Build Header
     headers = [
         "Company Name",
         "Invoice Number",
@@ -327,7 +592,6 @@ def generate_line_items_csv(items: list[InvoiceLineItem]) -> str:
             str(li.amount) if li.amount is not None else "",
         ]
 
-        # Custom fields
         cf = li.custom_fields or {}
         for ck in custom_keys:
             raw_val = cf.get(ck)
@@ -406,6 +670,7 @@ def generate_invoices_xlsx(records: list[InvoiceRecord]) -> bytes:
         "Invoice Date",
         "Currency",
         "Total Amount",
+        "Direction",
     ]
     for ck in custom_keys:
         headers.append(friendly_label(ck))
@@ -426,19 +691,18 @@ def generate_invoices_xlsx(records: list[InvoiceRecord]) -> bytes:
         row_cells: list[Any] = [
             rec.company_name,
             rec.invoice_number,
-            rec.invoice_date,  # datetime.date object
+            rec.invoice_date,
             rec.currency,
             _safe_float(rec.total_amount),
+            rec.direction or "unclassified",
         ]
 
-        # Custom fields
         cf = rec.custom_fields or {}
         for ck in custom_keys:
             raw_val = cf.get(ck)
             if raw_val is None:
                 row_cells.append(None)
             else:
-                # If numeric or date, convert
                 num_v = _safe_float(raw_val)
                 if num_v is not None and not str(raw_val).startswith(("0", "+")) or str(raw_val) == "0":
                     row_cells.append(num_v)
@@ -456,6 +720,148 @@ def generate_invoices_xlsx(records: list[InvoiceRecord]) -> bytes:
             rec.source_worksheet,
             imported_at_dt,
         ])
+
+        ws.append(row_cells)
+        row_idx = ws.max_row
+        for col_idx, val in enumerate(row_cells, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            if isinstance(val, str):
+                cell.data_type = "s"
+            cell.font = data_font
+
+            if isinstance(val, date) and not isinstance(val, datetime):
+                cell.number_format = "YYYY-MM-DD"
+                cell.alignment = date_align
+            elif isinstance(val, datetime):
+                cell.number_format = "YYYY-MM-DD HH:MM:SS"
+                cell.alignment = date_align
+            elif isinstance(val, (int, float)):
+                cell.number_format = "#,##0.00"
+                cell.alignment = num_align
+
+    _auto_fit_columns(ws)
+
+    buffer = io.BytesIO()
+    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+    wb.save(buffer)
+    wb.close()
+    return buffer.getvalue()
+
+
+def generate_receipts_xlsx(records: list[ReceiptRecord]) -> bytes:
+    """Generates Excel workbook for receipt records with typed cells."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Receipts"
+
+    headers = [
+        "Merchant Name",
+        "Receipt Number",
+        "Transaction Date",
+        "Transaction Time",
+        "Direction",
+        "Currency",
+        "Subtotal",
+        "Tax Amount",
+        "Total Amount",
+        "Payment Method",
+        "Store Address",
+        "Source File",
+        "Imported At",
+    ]
+
+    _style_xlsx_header(ws, headers)
+
+    data_font = Font(name="Arial", size=10, color="111827")
+    date_align = Alignment(horizontal="left")
+    num_align = Alignment(horizontal="right")
+
+    for rec in records:
+        batch = rec.batch
+        src_file_name = batch.source_file.original_name if (batch and batch.source_file) else None
+        imported_at_dt = batch.imported_at if (batch and batch.imported_at) else None
+
+        row_cells = [
+            rec.merchant_name,
+            rec.receipt_number or "Not provided",
+            rec.transaction_date,
+            rec.transaction_time,
+            rec.direction or "unclassified",
+            rec.currency,
+            _safe_float(rec.subtotal),
+            _safe_float(rec.tax_amount),
+            _safe_float(rec.total_amount),
+            rec.payment_method,
+            rec.store_address,
+            src_file_name,
+            imported_at_dt,
+        ]
+
+        ws.append(row_cells)
+        row_idx = ws.max_row
+        for col_idx, val in enumerate(row_cells, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            if isinstance(val, str):
+                cell.data_type = "s"
+            cell.font = data_font
+
+            if isinstance(val, date) and not isinstance(val, datetime):
+                cell.number_format = "YYYY-MM-DD"
+                cell.alignment = date_align
+            elif isinstance(val, datetime):
+                cell.number_format = "YYYY-MM-DD HH:MM:SS"
+                cell.alignment = date_align
+            elif isinstance(val, (int, float)):
+                cell.number_format = "#,##0.00"
+                cell.alignment = num_align
+
+    _auto_fit_columns(ws)
+
+    buffer = io.BytesIO()
+    ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
+    wb.save(buffer)
+    wb.close()
+    return buffer.getvalue()
+
+
+def generate_documents_xlsx(docs: list[dict[str, Any]]) -> bytes:
+    """Generates Excel workbook for unified document records with typed cells."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Documents"
+
+    headers = [
+        "Date",
+        "Document Type",
+        "Document Number",
+        "Counterparty",
+        "Direction",
+        "Currency",
+        "Total Amount",
+        "Status",
+        "Source File",
+        "Imported At",
+    ]
+
+    _style_xlsx_header(ws, headers)
+
+    data_font = Font(name="Arial", size=10, color="111827")
+    date_align = Alignment(horizontal="left")
+    num_align = Alignment(horizontal="right")
+
+    for d in docs:
+        row_cells = [
+            d["document_date"],
+            d["doc_type"],
+            d["document_number"],
+            d["counterparty"],
+            d["direction"],
+            d["currency"],
+            _safe_float(d["total_amount"]),
+            d["status"],
+            d["source_filename"],
+            d["imported_at"],
+        ]
 
         ws.append(row_cells)
         row_idx = ws.max_row
@@ -532,7 +938,6 @@ def generate_line_items_xlsx(items: list[InvoiceLineItem]) -> bytes:
             _safe_float(li.amount),
         ]
 
-        # Custom fields
         cf = li.custom_fields or {}
         for ck in custom_keys:
             raw_val = cf.get(ck)
@@ -561,10 +966,10 @@ def generate_line_items_xlsx(items: list[InvoiceLineItem]) -> bytes:
             if isinstance(val, date) and not isinstance(val, datetime):
                 cell.number_format = "YYYY-MM-DD"
                 cell.alignment = date_align
-            elif col_idx == 8 and isinstance(val, (int, float)):  # Tax rate
+            elif col_idx == 8 and isinstance(val, (int, float)):
                 cell.number_format = "0.00%"
                 cell.alignment = num_align
-            elif col_idx == 6 and isinstance(val, (int, float)):  # Quantity
+            elif col_idx == 6 and isinstance(val, (int, float)):
                 cell.number_format = "#,##0.####"
                 cell.alignment = num_align
             elif isinstance(val, (int, float)):

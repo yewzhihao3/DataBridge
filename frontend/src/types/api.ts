@@ -93,11 +93,14 @@ export interface SourceFileUploadResponse {
 export interface WorksheetPreviewResponse {
   file_id: number
   sheet_name: string
-  max_rows: number
-  max_cols: number
-  matrix: (string | null)[][]
-  has_formulas: boolean
-  formula_cells: string[]
+  rows: (string | number | boolean | null)[][]
+  total_rows_returned: number
+  total_cols_returned: number
+  max_rows?: number
+  max_cols?: number
+  matrix?: (string | null)[][]
+  has_formulas?: boolean
+  formula_cells?: string[]
 }
 
 // ── Template Types ───────────────────────────────────────────────────────────
@@ -385,17 +388,21 @@ export interface InvoiceListItem {
   invoice_date?: string | null
   total_amount?: number | string | null
   currency?: string | null
+  direction?: 'sales' | 'purchase' | 'unclassified'
   source_worksheet: string
   source_row_number?: number | null
   line_item_count: number
   created_at: string
+  source_file_id?: number | null
   source_filename?: string | null
+  source_media_type?: string | null
 }
 
 export interface InvoiceDetailBatchInfo {
   id: number
   source_file_id: number
   source_filename: string
+  source_media_type?: string | null
   template_id: number
   template_name: string
   status: string
@@ -410,6 +417,7 @@ export interface InvoiceDetailResponse {
   invoice_date?: string | null
   total_amount?: number | string | null
   currency?: string | null
+  direction?: 'sales' | 'purchase' | 'unclassified'
   source_worksheet: string
   source_row_number?: number | null
   custom_fields?: Record<string, any> | null
@@ -417,6 +425,70 @@ export interface InvoiceDetailResponse {
   batch?: InvoiceDetailBatchInfo | null
   line_items: InvoiceLineItemRead[]
   raw_data?: Record<string, any> | null
+}
+
+export interface ReceiptListItem {
+  id: number
+  batch_id: number
+  merchant_name: string
+  receipt_number?: string | null
+  transaction_date?: string | null
+  transaction_time?: string | null
+  currency?: string | null
+  direction?: 'expense' | 'income' | 'unclassified'
+  subtotal?: number | string | null
+  tax_amount?: number | string | null
+  total_amount?: number | string | null
+  payment_method?: string | null
+  line_item_count: number
+  created_at: string
+  source_file_id?: number | null
+  source_filename?: string | null
+  source_media_type?: string | null
+}
+
+export interface ReceiptDetailResponse {
+  id: number
+  batch_id: number
+  merchant_name: string
+  receipt_number?: string | null
+  transaction_date?: string | null
+  transaction_time?: string | null
+  currency?: string | null
+  direction?: 'expense' | 'income' | 'unclassified'
+  subtotal?: number | string | null
+  tax_amount?: number | string | null
+  total_amount?: number | string | null
+  payment_method?: string | null
+  store_address?: string | null
+  cashier?: string | null
+  branch?: string | null
+  cash_paid?: number | string | null
+  change_amount?: number | string | null
+  created_at: string
+  batch?: InvoiceDetailBatchInfo | null
+  line_items: ReceiptLineItemRead[]
+  raw_data?: Record<string, any> | null
+}
+
+export interface UnifiedDocumentListItem {
+  id: string
+  record_id: number
+  document_type: 'invoice' | 'receipt'
+  document_number?: string | null
+  counterparty: string
+  document_date?: string | null
+  currency?: string | null
+  total_amount?: number | string | null
+  direction?: 'sales' | 'purchase' | 'expense' | 'income' | 'unclassified'
+  batch_id: number
+  source_file_id?: number | null
+  source_filename?: string | null
+  source_worksheet?: string | null
+  source_media_type?: string | null
+  line_item_count: number
+  status: string
+  created_at: string
 }
 
 export interface LineItemListItem {
@@ -445,6 +517,22 @@ export interface PaginatedInvoicesResponse {
   total_pages: number
 }
 
+export interface PaginatedReceiptsResponse {
+  items: ReceiptListItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface PaginatedDocumentsResponse {
+  items: UnifiedDocumentListItem[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
 export interface PaginatedLineItemsResponse {
   items: LineItemListItem[]
   total: number
@@ -456,12 +544,15 @@ export interface PaginatedLineItemsResponse {
 export interface DataExplorerFilterOptions {
   companies: string[]
   currencies: string[]
+  merchants?: string[]
+  payment_methods?: string[]
+  directions?: string[]
 }
 
 // ── Export Center Types ──────────────────────────────────────────────────────
 
 export interface ExportSummaryResponse {
-  dataset: 'invoices' | 'line-items'
+  dataset: 'invoices' | 'line-items' | 'receipts' | 'documents'
   total_records: number
   column_count: number
   columns: string[]
@@ -471,9 +562,12 @@ export interface ExportFilterParams {
   search?: string
   company?: string
   currency?: string
+  direction?: string
+  document_type?: string
   date_from?: string
   date_to?: string
   has_line_items?: boolean
+  payment_method?: string
 }
 
 // Analytics keeps authoritative Decimal values as strings.

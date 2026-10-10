@@ -21,8 +21,11 @@ import type {
   InvoiceDetailResponse,
   InvoiceRecordRead,
   InvoiceRecordUpdate,
+  PaginatedDocumentsResponse,
   PaginatedInvoicesResponse,
   PaginatedLineItemsResponse,
+  PaginatedReceiptsResponse,
+  ReceiptDetailResponse,
   SourceFileUploadResponse,
   TemplateCreate,
   TemplateDetail,
@@ -254,6 +257,38 @@ export const api = {
     )
   },
 
+  async downloadSourceFile(fileId: number, defaultFilename = 'source_file.xlsx'): Promise<string> {
+    const url = `${API_BASE}/files/${fileId}/download`
+    const res = await fetch(url, { credentials: 'include', headers: sessionHeaders() })
+    if (!res.ok) {
+      if (res.status === 404) {
+        throw new Error('This source file is no longer available.')
+      }
+      throw new Error(`Failed to download file (${res.status}).`)
+    }
+
+    let filename = defaultFilename
+    const disposition = res.headers.get('Content-Disposition')
+    if (disposition) {
+      const match = disposition.match(/filename="?([^";]+)"?/i)
+      if (match && match[1]) {
+        filename = match[1].trim()
+      }
+    }
+
+    const blob = await res.blob()
+    const blobUrl = window.URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = blobUrl
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    window.URL.revokeObjectURL(blobUrl)
+
+    return filename
+  },
+
   // ── Templates ────────────────────────────────────────────────
 
   async listTemplates(): Promise<TemplateSummary[]> {
@@ -418,6 +453,7 @@ export const api = {
     search?: string
     company?: string
     currency?: string
+    direction?: string
     date_from?: string
     date_to?: string
     has_line_items?: boolean
@@ -430,6 +466,7 @@ export const api = {
     if (params.search) qp.set('search', params.search)
     if (params.company) qp.set('company', params.company)
     if (params.currency) qp.set('currency', params.currency)
+    if (params.direction) qp.set('direction', params.direction)
     if (params.date_from) qp.set('date_from', params.date_from)
     if (params.date_to) qp.set('date_to', params.date_to)
     if (params.has_line_items !== undefined) qp.set('has_line_items', String(params.has_line_items))
@@ -447,6 +484,81 @@ export const api = {
   /** Get complete detail of an individual invoice record. */
   async getDataExplorerInvoice(invoiceId: number): Promise<InvoiceDetailResponse> {
     return request<InvoiceDetailResponse>(`/data/invoices/${invoiceId}`)
+  },
+
+  /** Browse paginated receipt records with server-side search, filtering, and sorting. */
+  async listDataExplorerReceipts(params: {
+    search?: string
+    merchant?: string
+    receipt_number?: string
+    currency?: string
+    direction?: string
+    payment_method?: string
+    date_from?: string
+    date_to?: string
+    amount_min?: number
+    amount_max?: number
+    sort_by?: string
+    sort_order?: string
+    page?: number
+    page_size?: number
+  } = {}): Promise<PaginatedReceiptsResponse> {
+    const qp = new URLSearchParams()
+    if (params.search) qp.set('search', params.search)
+    if (params.merchant) qp.set('merchant', params.merchant)
+    if (params.receipt_number) qp.set('receipt_number', params.receipt_number)
+    if (params.currency) qp.set('currency', params.currency)
+    if (params.direction) qp.set('direction', params.direction)
+    if (params.payment_method) qp.set('payment_method', params.payment_method)
+    if (params.date_from) qp.set('date_from', params.date_from)
+    if (params.date_to) qp.set('date_to', params.date_to)
+    if (params.amount_min !== undefined) qp.set('amount_min', String(params.amount_min))
+    if (params.amount_max !== undefined) qp.set('amount_max', String(params.amount_max))
+    if (params.sort_by) qp.set('sort_by', params.sort_by)
+    if (params.sort_order) qp.set('sort_order', params.sort_order)
+    if (params.page !== undefined) qp.set('page', String(params.page))
+    if (params.page_size !== undefined) qp.set('page_size', String(params.page_size))
+
+    const queryString = qp.toString()
+    return request<PaginatedReceiptsResponse>(
+      `/data/receipts${queryString ? `?${queryString}` : ''}`,
+    )
+  },
+
+  /** Get complete detail of an individual receipt record. */
+  async getDataExplorerReceipt(receiptId: number): Promise<ReceiptDetailResponse> {
+    return request<ReceiptDetailResponse>(`/data/receipts/${receiptId}`)
+  },
+
+  /** Browse paginated unified financial document register combining invoices and receipts. */
+  async listDataExplorerDocuments(params: {
+    search?: string
+    document_type?: string
+    direction?: string
+    currency?: string
+    date_from?: string
+    date_to?: string
+    sort_by?: string
+    sort_order?: string
+    page?: number
+    page_size?: number
+  } = {}): Promise<PaginatedDocumentsResponse> {
+    const qp = new URLSearchParams()
+    if (params.search) qp.set('search', params.search)
+    if (params.document_type) qp.set('document_type', params.document_type)
+    if (params.direction) qp.set('direction', params.direction)
+    if (params.currency) qp.set('currency', params.currency)
+    if (params.date_from) qp.set('date_from', params.date_from)
+    if (params.date_to) qp.set('date_to', params.date_to)
+    if (params.sort_by) qp.set('sort_by', params.sort_by)
+    if (params.sort_order) qp.set('sort_order', params.sort_order)
+    if (params.page !== undefined) qp.set('page', String(params.page))
+    if (params.page_size !== undefined) qp.set('page_size', String(params.page_size))
+
+    const queryString = qp.toString()
+    return request<PaginatedDocumentsResponse>(
+      `/data/documents${queryString ? `?${queryString}` : ''}`,
+    )
   },
 
   /** Update canonical fields on an invoice record. */
@@ -490,7 +602,7 @@ export const api = {
     )
   },
 
-  /** Fetch unique filter options (companies, currencies) present in non-deleted records. */
+  /** Fetch unique filter options (companies, currencies, merchants, etc.) present in non-deleted records. */
   async getDataExplorerFilterOptions(): Promise<DataExplorerFilterOptions> {
     return request<DataExplorerFilterOptions>('/data/filter-options')
   },
@@ -499,13 +611,16 @@ export const api = {
 
   /** Fetch export metadata (record count and discovered columns) for a dataset and filters. */
   async getExportSummary(
-    dataset: 'invoices' | 'line-items',
+    dataset: 'invoices' | 'line-items' | 'receipts' | 'documents',
     filters: ExportFilterParams = {},
   ): Promise<ExportSummaryResponse> {
     const qp = new URLSearchParams({ dataset })
     if (filters.search) qp.set('search', filters.search)
     if (filters.company) qp.set('company', filters.company)
     if (filters.currency) qp.set('currency', filters.currency)
+    if (filters.direction) qp.set('direction', filters.direction)
+    if (filters.document_type) qp.set('document_type', filters.document_type)
+    if (filters.payment_method) qp.set('payment_method', filters.payment_method)
     if (filters.date_from) qp.set('date_from', filters.date_from)
     if (filters.date_to) qp.set('date_to', filters.date_to)
     if (filters.has_line_items !== undefined) qp.set('has_line_items', String(filters.has_line_items))
@@ -518,7 +633,7 @@ export const api = {
    * Resolves when download initiation is complete.
    */
   async downloadExport(
-    dataset: 'invoices' | 'line-items',
+    dataset: 'invoices' | 'line-items' | 'receipts' | 'documents',
     format: 'csv' | 'xlsx',
     filters: ExportFilterParams = {},
   ): Promise<string> {
@@ -526,6 +641,9 @@ export const api = {
     if (filters.search) qp.set('search', filters.search)
     if (filters.company) qp.set('company', filters.company)
     if (filters.currency) qp.set('currency', filters.currency)
+    if (filters.direction) qp.set('direction', filters.direction)
+    if (filters.document_type) qp.set('document_type', filters.document_type)
+    if (filters.payment_method) qp.set('payment_method', filters.payment_method)
     if (filters.date_from) qp.set('date_from', filters.date_from)
     if (filters.date_to) qp.set('date_to', filters.date_to)
     if (filters.has_line_items !== undefined) qp.set('has_line_items', String(filters.has_line_items))
