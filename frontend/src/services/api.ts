@@ -124,6 +124,11 @@ export const api = {
     if (!response.ok) throw new Error('Could not load document preview.')
     return response.blob()
   },
+  async downloadDocument(id: number): Promise<Blob> {
+    const response = await fetch(`${API_BASE}/documents/${id}/download`, { credentials: 'include', headers: sessionHeaders() })
+    if (!response.ok) throw new Error('Could not download document file.')
+    return response.blob()
+  },
   async createBatchImport(fileIds: number[]): Promise<BatchImportDetail> {
     return request('/batch-imports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_ids: fileIds }) })
   },

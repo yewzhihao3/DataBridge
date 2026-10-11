@@ -128,6 +128,7 @@ export interface TemplateSummary {
   header_row?: number | null
   data_start_row?: number | null
   mapping_count: number
+  is_system?: boolean
   created_at: string
   updated_at: string
 }
@@ -142,6 +143,7 @@ export interface TemplateDetail {
   header_row?: number | null
   data_start_row?: number | null
   field_mappings: TemplateFieldMapping[]
+  is_system?: boolean
   created_at: string
   updated_at: string
 }
@@ -292,9 +294,34 @@ export interface InvoiceRecordUpdate {
   direction?: 'sales' | 'purchase' | 'unclassified'
 }
 
+export interface ReceiptLineItemUpdate {
+  id?: number | null
+  description?: string | null
+  quantity?: number | string | null
+  unit_price?: number | string | null
+  tax_rate?: number | string | null
+  tax_amount?: number | string | null
+  amount?: number | string | null
+}
+
 /** Payload for PATCH /api/v1/data/receipts/{receipt_id} */
 export interface ReceiptRecordUpdate {
-  direction: 'expense' | 'income' | 'unclassified'
+  merchant_name?: string
+  receipt_number?: string | null
+  transaction_date?: string | null
+  transaction_time?: string | null
+  currency?: string | null
+  direction?: 'expense' | 'income' | 'unclassified'
+  subtotal?: number | string | null
+  tax_amount?: number | string | null
+  total_amount?: number | string | null
+  payment_method?: string | null
+  store_address?: string | null
+  cashier?: string | null
+  branch?: string | null
+  cash_paid?: number | string | null
+  change_amount?: number | string | null
+  line_items?: ReceiptLineItemUpdate[] | null
 }
 
 export interface ReceiptLineItemRead {

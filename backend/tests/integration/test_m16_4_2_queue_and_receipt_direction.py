@@ -181,7 +181,7 @@ async def test_patch_receipt_direction_validation_rejections(client: AsyncClient
     # Mass assignment rejection (extra='forbid')
     resp = await client.patch(
         f"/api/v1/data/receipts/{rcpt.id}",
-        json={"direction": "expense", "total_amount": "9999.00"},
+        json={"direction": "expense", "unsupported_field": "9999.00"},
     )
     assert resp.status_code == 422
 

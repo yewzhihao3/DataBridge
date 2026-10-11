@@ -99,7 +99,7 @@ class TemplateBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Unique template name")
     description: str | None = Field(None, max_length=500)
     template_type: Literal["invoice", "dataset"] = Field("invoice", description="Template mode ('invoice' or 'dataset')")
-    file_type: Literal["xlsx"] = Field("xlsx", description="File format")
+    file_type: str = Field("xlsx", description="File format")
     worksheet: str | None = Field(None, max_length=100, description="Target worksheet name (null = first sheet)")
     header_row: int | None = Field(None, ge=1, description="Header row number (1-based)")
     data_start_row: int | None = Field(None, ge=1, description="Data start row (1-based)")
@@ -115,6 +115,7 @@ class TemplateBase(BaseModel):
 
 
 class TemplateCreate(TemplateBase):
+    file_type: Literal["xlsx", "xls", "csv"] = Field("xlsx", description="File format")
     field_mappings: list[FieldMappingCreate] = Field(
         default_factory=list, description="Initial field mappings"
     )
@@ -209,6 +210,7 @@ class TemplateUpdate(BaseModel):
 
 class TemplateRead(TemplateBase):
     id: int
+    is_system: bool = False
     created_at: datetime
     updated_at: datetime
     field_mappings: list[FieldMappingRead] = Field(default_factory=list)
@@ -224,6 +226,7 @@ class TemplateListItem(BaseModel):
     file_type: str
     worksheet: str | None = None
     mapping_count: int
+    is_system: bool = False
     created_at: datetime
     updated_at: datetime
 

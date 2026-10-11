@@ -1,5 +1,4 @@
-<script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { suggestionDraft, reviewedTemplateId } from '@/composables/useSuggestionDraft'
 import { api } from '@/services/api'
@@ -12,6 +11,13 @@ import type {
 } from '@/types/api'
 
 const templates = ref<TemplateSummary[]>([])
+const userTemplates = computed(() =>
+  templates.value.filter((t) => !t.is_system && t.file_type !== 'document'),
+)
+const systemTemplates = computed(() =>
+  templates.value.filter((t) => !!t.is_system || t.file_type === 'document'),
+)
+const showSystemTemplates = ref(false)
 const route = useRoute()
 const router = useRouter()
 const reviewingSuggestions = ref(false)
@@ -209,6 +215,11 @@ const loadTemplates = async () => {
 }
 
 const editTemplate = async (template: TemplateSummary) => {
+  if (template.is_system || template.file_type === 'document') {
+    errorMessage.value = 'System document templates are managed internally and cannot be edited.'
+    return
+  }
+
   loading.value = true
   errorMessage.value = ''
   successMessage.value = ''
@@ -976,9 +987,16 @@ onMounted(async () => {
           >
             Refresh
           </button>
+        <div v-if="userTemplates.length === 0" class="empty-state">
+          <div class="empty-icon">📋</div>
+          <h3>No User Templates Yet</h3>
+          <p>Create a custom template to map spreadsheet columns and cells to DataBridge invoice records.</p>
+          <button class="btn btn-primary" style="margin-top: 16px;" @click="openCreateForm">
+            + Create New Template
+          </button>
         </div>
 
-        <div class="template-table-wrapper">
+        <div v-else class="template-table-wrapper">
           <table class="template-table">
             <thead>
               <tr>
@@ -994,7 +1012,7 @@ onMounted(async () => {
 
             <tbody>
               <tr
-                v-for="template in templates"
+                v-for="template in userTemplates"
                 :key="template.id"
               >
                 <td>
@@ -1046,26 +1064,80 @@ onMounted(async () => {
                     </button>
 
                     <button
-                      v-if="template.file_type !== 'document'"
                       class="btn btn-danger btn-small"
                       :disabled="deleting === template.id"
                       @click="deleteTemplate(template)"
                     >
                       {{ deleting === template.id ? 'Deleting...' : 'Delete' }}
                     </button>
-                    <span
-                      v-else
-                      class="badge"
-                      style="opacity: 0.7; font-size: 0.75rem; border: 1px solid var(--border-subtle);"
-                      title="System internal document template"
-                    >
-                      System
-                    </span>
                   </div>
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Collapsible Read-Only System Templates Section -->
+      <div v-if="systemTemplates.length > 0" class="system-templates-container">
+        <div class="system-templates-toggle" @click="showSystemTemplates = !showSystemTemplates">
+          <div class="system-toggle-left">
+            <span class="system-toggle-icon">🛡️</span>
+            <div>
+              <strong>Internal System Document Templates</strong>
+              <span class="system-count-badge">{{ systemTemplates.length }}</span>
+              <p class="system-toggle-hint">
+                Maintained automatically by DataBridge for deterministic OCR/AI receipt and invoice processing.
+              </p>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-small">
+            {{ showSystemTemplates ? 'Hide System Templates' : 'View System Templates' }}
+          </button>
+        </div>
+
+        <div v-if="showSystemTemplates" class="system-templates-card glass-card">
+          <div class="system-info-callout">
+            <p>
+              <strong>Read-Only Notice:</strong> System document templates are required for foreign-key integrity with imported PDF/image records. They do not use spreadsheet cell mappings and cannot be edited or deleted.
+            </p>
+          </div>
+
+          <div class="template-table-wrapper">
+            <table class="template-table system-table">
+              <thead>
+                <tr>
+                  <th>System Template</th>
+                  <th>Format</th>
+                  <th>Worksheet</th>
+                  <th>Engine Role</th>
+                  <th>Access</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="st in systemTemplates" :key="st.id">
+                  <td>
+                    <div class="template-name">
+                      <strong>{{ st.name }}</strong>
+                      <small>{{ st.description || 'System document import template' }}</small>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="badge badge-info">{{ st.file_type.toUpperCase() }}</span>
+                  </td>
+                  <td class="mono">{{ st.worksheet || 'Document' }}</td>
+                  <td>
+                    <span class="system-role-tag">Document Parser</span>
+                  </td>
+                  <td>
+                    <span class="badge badge-system-locked">
+                      🔒 Read-Only (System Protected)
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -1594,6 +1666,89 @@ onMounted(async () => {
   background: var(--status-success-bg);
   color: var(--success);
   border: 1px solid var(--status-success-border);
+}
+
+.system-templates-container {
+  margin-top: 32px;
+}
+
+.system-templates-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.system-templates-toggle:hover {
+  border-color: var(--border-medium);
+  background: var(--bg-elevated);
+}
+
+.system-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.system-toggle-icon {
+  font-size: 20px;
+}
+
+.system-count-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9999px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.system-toggle-hint {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.system-templates-card {
+  margin-top: 12px;
+  padding: 20px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.system-info-callout {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: var(--bg-elevated);
+  border-left: 3px solid var(--accent-brand);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.system-info-callout p {
+  margin: 0;
+}
+
+.system-role-tag {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.badge-system-locked {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  font-size: 11px;
 }
 
 @media (max-width: 640px) {

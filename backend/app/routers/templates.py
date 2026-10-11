@@ -150,6 +150,7 @@ def list_templates(db: Session = Depends(get_db)) -> list[TemplateListItem]:
                 file_type=t.file_type,
                 worksheet=t.worksheet,
                 mapping_count=len(t.field_mappings),
+                is_system=t.is_system,
                 created_at=t.created_at,
                 updated_at=t.updated_at,
             )
@@ -206,6 +207,12 @@ def update_template(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Template with ID {template_id} was not found.",
+        )
+
+    if template.is_system:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="System internal document templates cannot be modified.",
         )
 
     # If updating name, check for collisions
@@ -286,9 +293,9 @@ def delete_template(
             detail=f"Template with ID {template_id} was not found.",
         )
 
-    if getattr(template, "file_type", "") == "document":
+    if template.is_system:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="System document templates cannot be deleted.",
         )
 

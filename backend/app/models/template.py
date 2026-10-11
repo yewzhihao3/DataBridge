@@ -69,6 +69,11 @@ class Template(Base):
         order_by="TemplateFieldMapping.id",
     )
 
+    @property
+    def is_system(self) -> bool:
+        """Indicates whether this template is managed internally by the document import engine."""
+        return getattr(self, "file_type", "") == "document"
+
     def __repr__(self) -> str:
         return f"<Template id={self.id} name='{self.name}' type='{self.template_type}'>"
 

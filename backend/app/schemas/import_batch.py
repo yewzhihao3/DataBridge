@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
-from pydantic import model_validator, BaseModel, ConfigDict, Field
+from pydantic import field_validator, model_validator, BaseModel, ConfigDict, Field
 
 
 class RowDirectionOverride(BaseModel):
@@ -162,24 +162,67 @@ class ReceiptRecordRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ReceiptRecordUpdate(BaseModel):
-    """Update the financial direction on a receipt record.
-
-    Only the direction field is exposed; monetary amounts and extraction
-    results are intentionally excluded from this endpoint.
-    """
-
-    direction: str = Field(..., description="Receipt direction: 'expense', 'income', or 'unclassified'")
+class ReceiptLineItemUpdate(BaseModel):
+    id: int | None = Field(None, description="Line item ID if updating existing item; null for new item")
+    description: str | None = Field(None, max_length=500, description="Item description")
+    quantity: Decimal | None = Field(None, description="Item quantity")
+    unit_price: Decimal | None = Field(None, description="Item unit price")
+    tax_rate: Decimal | None = Field(None, description="Item tax rate")
+    tax_amount: Decimal | None = Field(None, description="Item tax amount")
+    amount: Decimal | None = Field(None, description="Total line amount")
 
     model_config = ConfigDict(extra="forbid")
 
-    @model_validator(mode="after")
-    def validate_direction(self):
-        norm = self.direction.strip().lower()
-        if norm not in {"expense", "income", "unclassified"}:
-            raise ValueError("direction must be 'expense', 'income', or 'unclassified'")
-        self.direction = norm
-        return self
+
+class ReceiptRecordUpdate(BaseModel):
+    """Allowlisted schema for updating a receipt record and its line items."""
+
+    merchant_name: str | None = Field(None, max_length=255, description="Merchant name")
+    receipt_number: str | None = Field(None, max_length=100, description="Receipt or transaction reference number")
+    transaction_date: date | None = Field(None, description="Transaction date (YYYY-MM-DD)")
+    transaction_time: str | None = Field(None, max_length=20, description="Transaction time (e.g. HH:MM or HH:MM:SS)")
+    currency: str | None = Field(None, max_length=10, description="Currency code (e.g. USD, MYR)")
+    direction: str | None = Field(None, description="Receipt direction: 'expense', 'income', or 'unclassified'")
+    subtotal: Decimal | None = Field(None, description="Receipt subtotal amount")
+    tax_amount: Decimal | None = Field(None, description="Receipt tax amount")
+    total_amount: Decimal | None = Field(None, description="Receipt total amount")
+    payment_method: str | None = Field(None, max_length=50, description="Payment method (e.g. Cash, Credit Card)")
+    store_address: str | None = Field(None, max_length=500, description="Store address")
+    cashier: str | None = Field(None, max_length=100, description="Cashier name or identifier")
+    branch: str | None = Field(None, max_length=100, description="Store branch or location")
+    cash_paid: Decimal | None = Field(None, description="Cash amount tendered")
+    change_amount: Decimal | None = Field(None, description="Change returned")
+    line_items: list[ReceiptLineItemUpdate] | None = Field(None, description="List of line items")
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("merchant_name")
+    @classmethod
+    def validate_merchant_name(cls, v: str | None) -> str | None:
+        if v is not None:
+            clean = v.strip()
+            if not clean:
+                raise ValueError("merchant_name cannot be empty or whitespace.")
+            return clean
+        return v
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, v: str | None) -> str | None:
+        if v is not None:
+            clean = v.strip().upper()
+            return clean if clean else None
+        return v
+
+    @field_validator("direction")
+    @classmethod
+    def validate_direction(cls, v: str | None) -> str | None:
+        if v is not None:
+            norm = v.strip().lower()
+            if norm not in {"expense", "income", "unclassified"}:
+                raise ValueError("direction must be 'expense', 'income', or 'unclassified'")
+            return norm
+        return v
 
 
 class ImportBatchListItem(BaseModel):

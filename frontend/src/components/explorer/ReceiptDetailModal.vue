@@ -21,6 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'save', payload: { receiptId: number; form: ReceiptRecordUpdate }): void
+  (e: 'edit', receipt: ReceiptDetailResponse): void
 }>()
 
 // ── Direction Editing State ────────────────────────────────────────────────
@@ -200,14 +201,25 @@ function onBackdropClick(e: MouseEvent) {
             {{ receipt.receipt_number || 'Receipt number: Not provided' }}
           </span>
         </div>
-        <button
-          type="button"
-          class="btn-close"
-          aria-label="Close receipt details modal"
-          @click="emit('close')"
-        >
-          <X :size="18" />
-        </button>
+        <div class="header-right-actions">
+          <button
+            type="button"
+            class="btn-edit-receipt"
+            title="Edit receipt details and line items"
+            @click="emit('edit', receipt)"
+          >
+            <Edit2 :size="13" />
+            <span>Edit Receipt</span>
+          </button>
+          <button
+            type="button"
+            class="btn-close"
+            aria-label="Close receipt details modal"
+            @click="emit('close')"
+          >
+            <X :size="18" />
+          </button>
+        </div>
       </div>
 
       <!-- Direction Edit Banner -->
@@ -431,6 +443,14 @@ function onBackdropClick(e: MouseEvent) {
 
       <!-- Modal Footer -->
       <div class="zen-modal-footer">
+        <button
+          type="button"
+          class="btn-zen-primary"
+          @click="emit('edit', receipt)"
+        >
+          <Edit2 :size="14" />
+          <span>Edit Receipt</span>
+        </button>
         <button type="button" class="btn-zen-secondary" @click="emit('close')">
           Close
         </button>
@@ -711,7 +731,53 @@ function onBackdropClick(e: MouseEvent) {
   border-top: 1px solid var(--border-default);
   background: var(--bg-elevated);
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.header-right-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-edit-receipt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-brand);
+  border: 1px solid var(--accent-brand);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-edit-receipt:hover {
+  filter: brightness(1.1);
+}
+
+.btn-zen-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1.125rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-brand);
+  border: 1px solid var(--accent-brand);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-zen-primary:hover {
+  filter: brightness(1.1);
 }
 
 .btn-zen-secondary {

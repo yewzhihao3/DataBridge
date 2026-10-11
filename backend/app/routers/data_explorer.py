@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -642,18 +642,19 @@ def get_receipt_detail(
 @router.patch(
     "/receipts/{receipt_id}",
     response_model=ReceiptDetailResponse,
-    summary="Update financial direction on a receipt record",
+    summary="Update a receipt record and its line items",
 )
-def update_receipt_direction(
+def update_receipt(
     receipt_id: int,
     payload: ReceiptRecordUpdate,
     db: Session = Depends(get_db),
 ) -> ReceiptDetailResponse:
     """
-    Updates only the financial direction ('expense', 'income', 'unclassified') on a
-    receipt record. Preserves all other fields (merchant, amounts, line items, etc.).
+    Updates editable fields and line items on a confirmed receipt record.
+    Supports partial updates while preserving extraction provenance and audit trails.
 
-    Rejects: cross-tenant records, soft-deleted batches, invalid direction values.
+    Rejects: cross-tenant records, soft-deleted batches, invalid direction values,
+    unauthorized line item IDs, and unallowed fields.
     """
     record = (
         db.query(ReceiptRecord)
@@ -672,70 +673,200 @@ def update_receipt_direction(
             detail=f"Receipt record with ID {receipt_id} was not found.",
         )
 
-    record.direction = payload.direction
+    fields_set = payload.model_fields_set
 
-    try:
-        org_id = db.info.get("organization_id")
-        user_id = db.info.get("user_id")
-        if org_id and user_id:
-            audit(
-                db,
-                org_id,
-                user_id,
-                "RECEIPT_DIRECTION_UPDATED",
-                "receipt_records",
-                record.id,
+    # 1. Update allowlisted header fields if explicitly present in payload
+    if "merchant_name" in fields_set:
+        if not payload.merchant_name or not payload.merchant_name.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Merchant name cannot be empty.",
             )
-        db.commit()
-        db.refresh(record)
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update receipt direction",
-        ) from exc
+        record.merchant_name = payload.merchant_name.strip()
 
-    raw_dict: dict[str, Any] | None = None
+    if "receipt_number" in fields_set:
+        record.receipt_number = payload.receipt_number.strip() if payload.receipt_number else ""
+
+    if "transaction_date" in fields_set:
+        record.transaction_date = payload.transaction_date
+
+    if "transaction_time" in fields_set:
+        record.transaction_time = payload.transaction_time
+
+    if "currency" in fields_set:
+        record.currency = payload.currency
+
+    if "direction" in fields_set:
+        if payload.direction is not None:
+            record.direction = payload.direction
+
+    if "subtotal" in fields_set:
+        record.subtotal = payload.subtotal
+
+    if "tax_amount" in fields_set:
+        record.tax_amount = payload.tax_amount
+
+    if "total_amount" in fields_set:
+        record.total_amount = payload.total_amount
+
+    if "payment_method" in fields_set:
+        record.payment_method = payload.payment_method
+
+    if "store_address" in fields_set:
+        record.store_address = payload.store_address
+
+    if "cashier" in fields_set:
+        record.cashier = payload.cashier
+
+    if "branch" in fields_set:
+        record.branch = payload.branch
+
+    if "cash_paid" in fields_set:
+        record.cash_paid = payload.cash_paid
+
+    if "change_amount" in fields_set:
+        record.change_amount = payload.change_amount
+
+    # 2. Line Items Update
+    if "line_items" in fields_set and payload.line_items is not None:
+        existing_items = {li.id: li for li in record.line_items}
+
+        # Check for duplicate IDs in payload
+        payload_item_ids = [li.id for li in payload.line_items if li.id is not None]
+        if len(payload_item_ids) != len(set(payload_item_ids)):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Duplicate line item IDs in update payload.",
+            )
+
+        # Validate line-item ownership against this receipt
+        for li in payload.line_items:
+            if li.id is not None and li.id not in existing_items:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Line item with ID {li.id} does not belong to receipt {receipt_id}.",
+                )
+
+        # Remove omitted line items
+        payload_id_set = set(payload_item_ids)
+        for ex_id, ex_item in list(existing_items.items()):
+            if ex_id not in payload_id_set:
+                db.delete(ex_item)
+
+        # Update existing and add new line items
+        for index, item_data in enumerate(payload.line_items, start=1):
+            if item_data.id is not None:
+                item = existing_items[item_data.id]
+                item.source_row_number = index
+                item.description = item_data.description
+                item.quantity = item_data.quantity
+                item.unit_price = item_data.unit_price
+                item.tax_rate = item_data.tax_rate
+                item.tax_amount = item_data.tax_amount
+                item.amount = item_data.amount
+            else:
+                new_item = ReceiptLineItem(
+                    receipt_id=record.id,
+                    source_row_number=index,
+                    description=item_data.description,
+                    quantity=item_data.quantity,
+                    unit_price=item_data.unit_price,
+                    tax_rate=item_data.tax_rate,
+                    tax_amount=item_data.tax_amount,
+                    amount=item_data.amount,
+                    raw_data=json.dumps(item_data.model_dump(mode="json"), default=str),
+                )
+                db.add(new_item)
+
+    # 3. Preserve Extraction Evidence & Record Edit Audit in raw_data
+    org_id = db.info.get("organization_id")
+    user_id = db.info.get("user_id")
+
+    raw_dict: dict[str, Any] = {}
     if record.raw_data:
         try:
             raw_dict = json.loads(record.raw_data)
         except Exception:
-            raw_dict = None
+            raw_dict = {"original_raw": record.raw_data}
+
+    edit_history = raw_dict.setdefault("edit_history", [])
+    edit_history.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "user_id": user_id,
+        "fields_changed": sorted(list(fields_set)),
+    })
+    record.raw_data = json.dumps(raw_dict, default=str)
+
+    # 4. Atomic Commit & Audit Logging
+    try:
+        if org_id and user_id:
+            audit_action = "RECEIPT_DIRECTION_UPDATED" if fields_set == {"direction"} else "RECEIPT_UPDATED"
+            audit(
+                db,
+                org_id,
+                user_id,
+                audit_action,
+                "receipt_records",
+                record.id,
+            )
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update receipt record",
+        ) from exc
+
+    # Refresh record with all relationships
+    db.expire(record)
+    refreshed_record = (
+        db.query(ReceiptRecord)
+        .options(
+            joinedload(ReceiptRecord.batch).joinedload(ImportBatch.source_file),
+            joinedload(ReceiptRecord.batch).joinedload(ImportBatch.template),
+            joinedload(ReceiptRecord.line_items),
+        )
+        .filter(ReceiptRecord.id == receipt_id)
+        .first()
+    ) or record
 
     batch_info: InvoiceDetailBatchInfo | None = None
-    if record.batch:
+    if refreshed_record.batch:
         batch_info = InvoiceDetailBatchInfo(
-            id=record.batch.id,
-            source_file_id=record.batch.source_file_id,
-            source_filename=record.batch.source_file.original_name if record.batch.source_file else "Unknown",
-            source_media_type=record.batch.source_file.media_type if record.batch.source_file else None,
-            template_id=record.batch.template_id,
-            template_name=record.batch.template.name if record.batch.template else "Unknown",
-            status=record.batch.status,
-            imported_at=record.batch.imported_at,
+            id=refreshed_record.batch.id,
+            source_file_id=refreshed_record.batch.source_file_id,
+            source_filename=refreshed_record.batch.source_file.original_name if refreshed_record.batch.source_file else "Unknown",
+            source_media_type=refreshed_record.batch.source_file.media_type if refreshed_record.batch.source_file else None,
+            template_id=refreshed_record.batch.template_id,
+            template_name=refreshed_record.batch.template.name if refreshed_record.batch.template else "Unknown",
+            status=refreshed_record.batch.status,
+            imported_at=refreshed_record.batch.imported_at,
         )
 
     return ReceiptDetailResponse(
-        id=record.id,
-        batch_id=record.batch_id,
-        merchant_name=record.merchant_name,
-        receipt_number=record.receipt_number,
-        transaction_date=record.transaction_date,
-        transaction_time=record.transaction_time,
-        currency=record.currency,
-        direction=record.direction,
-        subtotal=record.subtotal,
-        tax_amount=record.tax_amount,
-        total_amount=record.total_amount,
-        payment_method=record.payment_method,
-        store_address=record.store_address,
-        cashier=record.cashier,
-        branch=record.branch,
-        cash_paid=record.cash_paid,
-        change_amount=record.change_amount,
-        created_at=record.created_at,
+        id=refreshed_record.id,
+        batch_id=refreshed_record.batch_id,
+        merchant_name=refreshed_record.merchant_name,
+        receipt_number=refreshed_record.receipt_number,
+        transaction_date=refreshed_record.transaction_date,
+        transaction_time=refreshed_record.transaction_time,
+        currency=refreshed_record.currency,
+        direction=refreshed_record.direction,
+        subtotal=refreshed_record.subtotal,
+        tax_amount=refreshed_record.tax_amount,
+        total_amount=refreshed_record.total_amount,
+        payment_method=refreshed_record.payment_method,
+        store_address=refreshed_record.store_address,
+        cashier=refreshed_record.cashier,
+        branch=refreshed_record.branch,
+        cash_paid=refreshed_record.cash_paid,
+        change_amount=refreshed_record.change_amount,
+        created_at=refreshed_record.created_at,
         batch=batch_info,
-        line_items=[ReceiptLineItemRead.model_validate(li) for li in record.line_items],
+        line_items=[ReceiptLineItemRead.model_validate(li) for li in refreshed_record.line_items],
         raw_data=raw_dict,
     )
 

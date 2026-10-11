@@ -20,6 +20,7 @@ import {
 
 import InvoiceDetailModal from '@/components/explorer/InvoiceDetailModal.vue'
 import ReceiptDetailModal from '@/components/explorer/ReceiptDetailModal.vue'
+import ReceiptEditModal from '@/components/explorer/ReceiptEditModal.vue'
 import SourcePreviewModal from '@/components/explorer/SourcePreviewModal.vue'
 import { api } from '@/services/api'
 import type {
@@ -132,6 +133,7 @@ const isLoadingInvoiceDetail = ref(false)
 
 const selectedReceipt = ref<ReceiptDetailResponse | null>(null)
 const isReceiptModalOpen = ref(false)
+const isReceiptEditModalOpen = ref(false)
 const isLoadingReceiptDetail = ref(false)
 
 // ── Debounce Timer ──────────────────────────────────────────────────────────
@@ -647,6 +649,20 @@ async function openReceiptDetail(receiptId: number) {
   } finally {
     isLoadingReceiptDetail.value = false
   }
+}
+
+
+
+function openReceiptEditor(receipt: ReceiptDetailResponse) {
+  selectedReceipt.value = receipt
+  isReceiptModalOpen.value = false
+  isReceiptEditModalOpen.value = true
+}
+
+function handleReceiptSaved(updated: ReceiptDetailResponse) {
+  selectedReceipt.value = updated
+  fetchReceipts()
+  if (activeTab.value === 'documents') fetchDocuments()
 }
 
 function inspectDocumentRow(doc: UnifiedDocumentListItem) {
@@ -1945,6 +1961,15 @@ watch(activeTab, (tab) => {
       :is-open="isReceiptModalOpen"
       @close="isReceiptModalOpen = false; selectedReceipt = null"
       @save="handleSaveReceiptEdit"
+      @edit="openReceiptEditor"
+    />
+
+    <ReceiptEditModal
+      v-if="selectedReceipt"
+      :receipt="selectedReceipt"
+      :is-open="isReceiptEditModalOpen"
+      @close="isReceiptEditModalOpen = false; selectedReceipt = null"
+      @saved="handleReceiptSaved"
     />
 
     <SourcePreviewModal
