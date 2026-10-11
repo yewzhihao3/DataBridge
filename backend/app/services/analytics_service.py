@@ -196,6 +196,21 @@ def dashboard(db: Session, filters: AnalyticsFilters) -> DashboardResponse:
         ).limit(10).all()
         line_item_values = [LineItemValue(description=r[0], line_item_count=r[1], line_items_with_amount=r[2], amount=money(r[3])) for r in item_rows]
 
+    total_workspace_invoices = (
+        db.query(func.count(InvoiceRecord.id))
+        .join(InvoiceRecord.batch)
+        .filter(active_record_scope())
+        .scalar()
+        or 0
+    )
+    total_workspace_receipts = (
+        db.query(func.count(ReceiptRecord.id))
+        .join(ReceiptRecord.batch)
+        .filter(active_record_scope())
+        .scalar()
+        or 0
+    )
+
     return DashboardResponse(
         filters=filters,
         monetary_values_available=monetary,
@@ -238,6 +253,8 @@ def dashboard(db: Session, filters: AnalyticsFilters) -> DashboardResponse:
             receipts_with_total=rcpt_counts[1],
             receipts_without_total=rcpt_counts[0] - rcpt_counts[1],
             receipts_without_date=rcpt_counts[0] - rcpt_counts[2],
+            total_workspace_invoices=int(total_workspace_invoices),
+            total_workspace_receipts=int(total_workspace_receipts),
         ),
         financial_invoice_trends=[FinancialInvoiceTrend(
             period=f"{int(r[0]):04d}-{int(r[1]):02d}",

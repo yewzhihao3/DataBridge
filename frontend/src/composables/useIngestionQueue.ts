@@ -335,8 +335,17 @@ function removeEntry(id: string) {
   queue.value = queue.value.filter(e => e.id !== id)
 }
 
+function dismissCompleted() {
+  queue.value = queue.value.filter(e => e.status !== 'imported')
+}
+
 function clearCompleted() {
-  queue.value = queue.value.filter(e => e.status !== 'imported' && e.status !== 'failed')
+  dismissCompleted()
+}
+
+function discardUnfinished() {
+  // Removes in-progress or un-imported queue items only; keeps imported ones
+  queue.value = queue.value.filter(e => e.status === 'imported')
 }
 
 function markDocumentConfirmed(documentId: number) {
@@ -350,6 +359,25 @@ function markFileImported(fileId: number) {
   const entry = queue.value.find(e => e.fileId === fileId)
   if (entry) {
     entry.status = 'imported'
+  }
+}
+
+function syncQueueWithBatch(batch: BatchImportDetail) {
+  if (!batch?.files) return
+  for (const bf of batch.files) {
+    const entry = queue.value.find(e => e.fileId === bf.source_file_id)
+    if (entry) {
+      if (bf.status === 'imported') {
+        entry.status = 'imported'
+      } else if (bf.status === 'ready') {
+        entry.status = 'ready'
+      } else if (bf.status === 'review') {
+        entry.status = 'needs_review'
+      } else if (bf.status === 'failed') {
+        entry.status = 'failed'
+        entry.error = bf.error_message || undefined
+      }
+    }
   }
 }
 
@@ -368,16 +396,24 @@ export function useIngestionQueue() {
     }
   })
 
+  const activeEntries = computed(() => queue.value.filter(e => e.status !== 'imported'))
+  const completedEntries = computed(() => queue.value.filter(e => e.status === 'imported'))
+
   return {
     queue,
     activeBatch,
     queueSummary,
+    activeEntries,
+    completedEntries,
     addFiles,
     removeEntry,
+    dismissCompleted,
     clearCompleted,
+    discardUnfinished,
     retryEntry,
     markDocumentConfirmed,
     markFileImported,
+    syncQueueWithBatch,
     enforceWorkspaceScope,
   }
 }

@@ -12,6 +12,7 @@ import type {
   ApiError,
   ExtractionPreviewResponse,
   ImportBatchDetail,
+  RowDirectionOverride,
   SourceFileUploadResponse,
   TemplateSummary,
 } from '@/types/api'
@@ -239,9 +240,12 @@ function createImportWorkflow() {
     }
   }
 
-  // ── Step 4: Confirm Import ───────────────────────────────────
+  // ── Step 4: Confirm Import ────────────────────────────────────
 
-  async function confirmImport() {
+  async function confirmImport(options?: {
+    direction?: 'sales' | 'purchase' | 'unclassified'
+    row_directions?: RowDirectionOverride[] | null
+  }) {
     confirmError.value = null
 
     /*
@@ -271,6 +275,8 @@ function createImportWorkflow() {
         template_id: templateId,
         acknowledge_warnings:
           userAcknowledgedWarnings.value,
+        direction: options?.direction,
+        row_directions: options?.row_directions,
       })
 
       confirmedBatch.value = batch

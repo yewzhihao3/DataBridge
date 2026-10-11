@@ -18,6 +18,7 @@ import type {
   ImportBatchDetail,
   ImportBatchListItem,
   ImportConfirmRequest,
+  RowDirectionOverride,
   InvoiceDetailResponse,
   InvoiceRecordRead,
   InvoiceRecordUpdate,
@@ -26,6 +27,7 @@ import type {
   PaginatedLineItemsResponse,
   PaginatedReceiptsResponse,
   ReceiptDetailResponse,
+  ReceiptRecordUpdate,
   SourceFileUploadResponse,
   TemplateCreate,
   TemplateDetail,
@@ -138,7 +140,20 @@ export const api = {
   async assignBatchTemplate(id: number, fileId: number, templateId: number): Promise<BatchImportDetail> {
     return request(`/batch-imports/${id}/files/${fileId}/template?template_id=${templateId}`, { method: 'PATCH' })
   },
-  async acceptBatchWarnings(id: number, fileId: number): Promise<BatchImportDetail> { return request(`/batch-imports/${id}/files/${fileId}/accept-warnings`, { method: 'POST' }) },
+  async acceptBatchWarnings(
+    id: number,
+    fileId: number,
+    options?: {
+      direction?: 'sales' | 'purchase' | 'unclassified'
+      row_directions?: RowDirectionOverride[] | null
+    },
+  ): Promise<BatchImportDetail> {
+    return request(`/batch-imports/${id}/files/${fileId}/accept-warnings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options || {}),
+    })
+  },
   getImportSummary() { return request<{ total_imports: number; total_records: number; total_warnings: number }>("/imports/summary") },
   async analyzeWorkbook(file_id: number, worksheet?: string): Promise<WorkbookAnalysis> {
     return request('/suggestions/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_id, worksheet }) })
@@ -567,6 +582,18 @@ export const api = {
     payload: InvoiceRecordUpdate,
   ): Promise<InvoiceDetailResponse> {
     return request<InvoiceDetailResponse>(`/data/invoices/${invoiceId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  },
+
+  /** Update financial direction on a receipt record. */
+  async updateDataExplorerReceipt(
+    receiptId: number,
+    payload: ReceiptRecordUpdate,
+  ): Promise<ReceiptDetailResponse> {
+    return request<ReceiptDetailResponse>(`/data/receipts/${receiptId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

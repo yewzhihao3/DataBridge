@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, literal, or_
 from sqlalchemy.orm import Session, joinedload
 
+from app.security import audit
 from app.tenancy import get_tenant_db as get_db
 from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord, ReceiptLineItem, ReceiptRecord
 from app.services.business_query import active_record_scope, invoice_filter_conditions, receipt_filter_conditions
@@ -32,7 +33,7 @@ from app.schemas.data_explorer import (
     ReceiptListItem,
     UnifiedDocumentListItem,
 )
-from app.schemas.import_batch import InvoiceLineItemRead, InvoiceRecordUpdate, ReceiptLineItemRead
+from app.schemas.import_batch import InvoiceLineItemRead, InvoiceRecordUpdate, ReceiptLineItemRead, ReceiptRecordUpdate
 
 router = APIRouter(prefix="/api/v1/data", tags=["Data Explorer"])
 
@@ -589,6 +590,110 @@ def get_receipt_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Receipt record with ID {receipt_id} was not found.",
         )
+
+    raw_dict: dict[str, Any] | None = None
+    if record.raw_data:
+        try:
+            raw_dict = json.loads(record.raw_data)
+        except Exception:
+            raw_dict = None
+
+    batch_info: InvoiceDetailBatchInfo | None = None
+    if record.batch:
+        batch_info = InvoiceDetailBatchInfo(
+            id=record.batch.id,
+            source_file_id=record.batch.source_file_id,
+            source_filename=record.batch.source_file.original_name if record.batch.source_file else "Unknown",
+            source_media_type=record.batch.source_file.media_type if record.batch.source_file else None,
+            template_id=record.batch.template_id,
+            template_name=record.batch.template.name if record.batch.template else "Unknown",
+            status=record.batch.status,
+            imported_at=record.batch.imported_at,
+        )
+
+    return ReceiptDetailResponse(
+        id=record.id,
+        batch_id=record.batch_id,
+        merchant_name=record.merchant_name,
+        receipt_number=record.receipt_number,
+        transaction_date=record.transaction_date,
+        transaction_time=record.transaction_time,
+        currency=record.currency,
+        direction=record.direction,
+        subtotal=record.subtotal,
+        tax_amount=record.tax_amount,
+        total_amount=record.total_amount,
+        payment_method=record.payment_method,
+        store_address=record.store_address,
+        cashier=record.cashier,
+        branch=record.branch,
+        cash_paid=record.cash_paid,
+        change_amount=record.change_amount,
+        created_at=record.created_at,
+        batch=batch_info,
+        line_items=[ReceiptLineItemRead.model_validate(li) for li in record.line_items],
+        raw_data=raw_dict,
+    )
+
+
+# ── Receipt Direction Update Endpoint ────────────────────────────────────────
+
+
+@router.patch(
+    "/receipts/{receipt_id}",
+    response_model=ReceiptDetailResponse,
+    summary="Update financial direction on a receipt record",
+)
+def update_receipt_direction(
+    receipt_id: int,
+    payload: ReceiptRecordUpdate,
+    db: Session = Depends(get_db),
+) -> ReceiptDetailResponse:
+    """
+    Updates only the financial direction ('expense', 'income', 'unclassified') on a
+    receipt record. Preserves all other fields (merchant, amounts, line items, etc.).
+
+    Rejects: cross-tenant records, soft-deleted batches, invalid direction values.
+    """
+    record = (
+        db.query(ReceiptRecord)
+        .options(
+            joinedload(ReceiptRecord.batch).joinedload(ImportBatch.source_file),
+            joinedload(ReceiptRecord.batch).joinedload(ImportBatch.template),
+            joinedload(ReceiptRecord.line_items),
+        )
+        .join(ReceiptRecord.batch)
+        .filter(ReceiptRecord.id == receipt_id, active_record_scope())
+        .first()
+    )
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Receipt record with ID {receipt_id} was not found.",
+        )
+
+    record.direction = payload.direction
+
+    try:
+        org_id = db.info.get("organization_id")
+        user_id = db.info.get("user_id")
+        if org_id and user_id:
+            audit(
+                db,
+                org_id,
+                user_id,
+                "RECEIPT_DIRECTION_UPDATED",
+                "receipt_records",
+                record.id,
+            )
+        db.commit()
+        db.refresh(record)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update receipt direction",
+        ) from exc
 
     raw_dict: dict[str, Any] | None = None
     if record.raw_data:

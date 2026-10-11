@@ -56,6 +56,10 @@ class FinancialSummary(BaseModel):
     receipts_without_total: int = 0
     receipts_without_date: int = 0
 
+    # Workspace-wide totals (unfiltered by date/currency) to distinguish empty workspace from empty filter
+    total_workspace_invoices: int = 0
+    total_workspace_receipts: int = 0
+
 
 class InvoicePeriod(BaseModel):
     period: str

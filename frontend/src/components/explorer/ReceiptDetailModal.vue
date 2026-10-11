@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   CreditCard,
+  Edit2,
   ExternalLink,
   FileText,
+  Loader2,
   Receipt,
   Tag,
   X,
 } from 'lucide-vue-next'
 
-import type { ReceiptDetailResponse } from '@/types/api'
+import type { ReceiptDetailResponse, ReceiptRecordUpdate } from '@/types/api'
 
 const props = defineProps<{
   receipt: ReceiptDetailResponse | null
@@ -18,7 +20,55 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'save', payload: { receiptId: number; form: ReceiptRecordUpdate }): void
 }>()
+
+// ── Direction Editing State ────────────────────────────────────────────────
+const isEditingDirection = ref(false)
+const selectedDirection = ref<'expense' | 'income' | 'unclassified'>('unclassified')
+const isSaving = ref(false)
+const saveError = ref('')
+
+watch(
+  () => props.receipt,
+  (newRcpt) => {
+    if (newRcpt) {
+      selectedDirection.value = (newRcpt.direction as any) || 'unclassified'
+      isEditingDirection.value = false
+      saveError.value = ''
+    }
+  },
+  { immediate: true },
+)
+
+function startEditDirection() {
+  selectedDirection.value = (props.receipt?.direction as any) || 'unclassified'
+  saveError.value = ''
+  isEditingDirection.value = true
+}
+
+function cancelEditDirection() {
+  selectedDirection.value = (props.receipt?.direction as any) || 'unclassified'
+  saveError.value = ''
+  isEditingDirection.value = false
+}
+
+async function handleSaveDirection() {
+  if (!props.receipt) return
+  isSaving.value = true
+  saveError.value = ''
+  try {
+    emit('save', {
+      receiptId: props.receipt.id,
+      form: { direction: selectedDirection.value },
+    })
+    isEditingDirection.value = false
+  } catch (err: any) {
+    saveError.value = err?.message || 'Failed to update direction.'
+  } finally {
+    isSaving.value = false
+  }
+}
 
 // ── Presentation Helpers ────────────────────────────────────────────────────
 
@@ -130,9 +180,21 @@ function onBackdropClick(e: MouseEvent) {
             <h2 id="receipt-detail-modal-title" class="text-lg font-semibold text-slate-900">
               Receipt Details
             </h2>
-            <span :class="['zen-badge', getDirectionBadgeClass(receipt.direction)]">
-              {{ formatDirection(receipt.direction) }}
-            </span>
+            <div class="header-direction-group">
+              <span v-if="!isEditingDirection" :class="['zen-badge', getDirectionBadgeClass(receipt.direction)]">
+                {{ formatDirection(receipt.direction) }}
+              </span>
+              <button
+                v-if="!isEditingDirection"
+                type="button"
+                class="btn-edit-direction"
+                title="Edit financial direction"
+                @click="startEditDirection"
+              >
+                <Edit2 :size="12" />
+                <span>Edit Direction</span>
+              </button>
+            </div>
           </div>
           <span class="text-xs text-slate-500 font-mono mt-0.5">
             {{ receipt.receipt_number || 'Receipt number: Not provided' }}
@@ -146,6 +208,52 @@ function onBackdropClick(e: MouseEvent) {
         >
           <X :size="18" />
         </button>
+      </div>
+
+      <!-- Direction Edit Banner -->
+      <div v-if="isEditingDirection" class="direction-edit-banner">
+        <div class="direction-edit-content">
+          <span class="direction-edit-label">Financial Direction:</span>
+          <div class="direction-seg-group" role="radiogroup" aria-label="Receipt financial direction">
+            <button
+              v-for="opt in (['expense', 'income', 'unclassified'] as const)"
+              :key="opt"
+              type="button"
+              role="radio"
+              :aria-checked="selectedDirection === opt"
+              class="direction-seg-btn"
+              :class="{
+                'active': selectedDirection === opt,
+                'seg-expense': opt === 'expense',
+                'seg-income': opt === 'income',
+                'seg-unclassified': opt === 'unclassified',
+              }"
+              @click="selectedDirection = opt"
+            >
+              {{ opt === 'expense' ? 'Expense' : opt === 'income' ? 'Income' : 'Unclassified' }}
+            </button>
+          </div>
+          <div class="direction-edit-actions">
+            <button
+              type="button"
+              class="btn-direction-save"
+              :disabled="isSaving"
+              @click="handleSaveDirection"
+            >
+              <Loader2 v-if="isSaving" :size="13" class="animate-spin" />
+              Save Changes
+            </button>
+            <button
+              type="button"
+              class="btn-direction-cancel"
+              :disabled="isSaving"
+              @click="cancelEditDirection"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+        <p v-if="saveError" class="direction-edit-error" role="alert">{{ saveError }}</p>
       </div>
 
       <!-- Modal Body -->
@@ -621,5 +729,142 @@ function onBackdropClick(e: MouseEvent) {
 .btn-zen-secondary:hover {
   background: var(--bg-elevated);
   border-color: var(--border-strong);
+}
+
+/* ── Direction Editing Styles ───────────────────────────────────────── */
+.header-direction-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-edit-direction {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--accent-brand);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-edit-direction:hover {
+  filter: brightness(1.15);
+}
+
+.direction-edit-banner {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.direction-edit-content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.direction-edit-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.direction-seg-group {
+  display: inline-flex;
+  border-radius: 9999px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  padding: 2px;
+  gap: 2px;
+}
+
+.direction-seg-btn {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.direction-seg-btn:hover:not(.active) {
+  color: var(--text-primary);
+}
+
+.direction-seg-btn.active.seg-expense {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.direction-seg-btn.active.seg-income {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.direction-seg-btn.active.seg-unclassified {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-secondary);
+}
+
+.direction-edit-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.btn-direction-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 0.25rem;
+  border: 1px solid var(--accent-brand);
+  background: var(--accent-brand);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-direction-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-direction-cancel {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 0.25rem;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-direction-cancel:hover {
+  background: var(--bg-surface);
+}
+
+.direction-edit-error {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #ef4444;
 }
 </style>

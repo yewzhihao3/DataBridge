@@ -516,6 +516,22 @@ def confirm_import(
 
         rows_by_num = {r.row_number: r for r in extraction_result.rows}
 
+        row_overrides_by_num: dict[int, str] = {}
+        row_overrides_by_inv_num: dict[str, str] = {}
+        if payload.row_directions:
+            for ov in payload.row_directions:
+                if ov.source_row_number is not None:
+                    row_overrides_by_num[ov.source_row_number] = ov.direction
+                if ov.invoice_number is not None and ov.invoice_number.strip():
+                    row_overrides_by_inv_num[ov.invoice_number.strip().lower()] = ov.direction
+
+        def _resolve_direction(row_num: int | None, inv_no: str | None) -> str:
+            if row_num is not None and row_num in row_overrides_by_num:
+                return row_overrides_by_num[row_num]
+            if inv_no and inv_no.strip().lower() in row_overrides_by_inv_num:
+                return row_overrides_by_inv_num[inv_no.strip().lower()]
+            return payload.direction or "unclassified"
+
         for rr in validation_report.row_reports:
             norm_data = rr.normalized_data
             comp_name = _resolve_row_canonical(norm_data, "company_name", CANONICAL_INVOICE_ALIASES["company_name"])
@@ -525,6 +541,7 @@ def confirm_import(
             inv_date = _coerce_date(_resolve_row_canonical(norm_data, "invoice_date", CANONICAL_INVOICE_ALIASES["invoice_date"]))
             tot_amt = _coerce_decimal(_resolve_row_canonical(norm_data, "total_amount", CANONICAL_INVOICE_ALIASES["total_amount"]))
             curr = _resolve_row_canonical(norm_data, "currency", CANONICAL_INVOICE_ALIASES["currency"])
+            row_direction = _resolve_direction(rr.source_row_number, str(inv_num) if inv_num else None)
 
             custom_fields: dict[str, Any] = {}
             for key, val in norm_data.items():
@@ -542,6 +559,7 @@ def confirm_import(
                 invoice_date=inv_date,
                 total_amount=tot_amt,
                 currency=str(curr) if curr is not None else None,
+                direction=row_direction,
                 source_worksheet=extraction_result.target_worksheet,
                 source_row_number=rr.source_row_number,
                 raw_data=raw_json,
@@ -557,6 +575,18 @@ def confirm_import(
         inv_date = _coerce_date(_resolve_row_canonical(norm_data, "invoice_date", CANONICAL_INVOICE_ALIASES["invoice_date"]))
         tot_amt = _coerce_decimal(_resolve_row_canonical(norm_data, "total_amount", CANONICAL_INVOICE_ALIASES["total_amount"]))
         curr = _resolve_row_canonical(norm_data, "currency", CANONICAL_INVOICE_ALIASES["currency"])
+
+        row_overrides_by_inv_num = {}
+        if payload.row_directions:
+            for ov in payload.row_directions:
+                if ov.invoice_number is not None and ov.invoice_number.strip():
+                    row_overrides_by_inv_num[ov.invoice_number.strip().lower()] = ov.direction
+
+        single_direction = payload.direction or "unclassified"
+        if inv_num and str(inv_num).strip().lower() in row_overrides_by_inv_num:
+            single_direction = row_overrides_by_inv_num[str(inv_num).strip().lower()]
+        elif payload.row_directions and len(payload.row_directions) > 0 and payload.row_directions[0].direction:
+            single_direction = payload.row_directions[0].direction
 
         custom_fields = {}
         for key, val in norm_data.items():
@@ -581,6 +611,7 @@ def confirm_import(
             invoice_date=inv_date,
             total_amount=tot_amt,
             currency=str(curr) if curr is not None else None,
+            direction=single_direction,
             source_worksheet=extraction_result.target_worksheet,
             source_row_number=None,
             raw_data=raw_json,

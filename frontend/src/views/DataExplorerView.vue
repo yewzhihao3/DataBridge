@@ -30,6 +30,7 @@ import type {
   LineItemListItem,
   ReceiptDetailResponse,
   ReceiptListItem,
+  ReceiptRecordUpdate,
   UnifiedDocumentListItem,
 } from '@/types/api'
 
@@ -666,6 +667,20 @@ async function handleSaveInvoiceEdit(payload: {
     fetchInvoices()
     if (activeTab.value === 'documents') fetchDocuments()
     if (activeTab.value === 'line-items') fetchLineItems()
+  } catch (err: any) {
+    throw err
+  }
+}
+
+async function handleSaveReceiptEdit(payload: {
+  receiptId: number
+  form: ReceiptRecordUpdate
+}) {
+  try {
+    const updated = await api.updateDataExplorerReceipt(payload.receiptId, payload.form)
+    selectedReceipt.value = updated
+    fetchReceipts()
+    if (activeTab.value === 'documents') fetchDocuments()
   } catch (err: any) {
     throw err
   }
@@ -1929,6 +1944,7 @@ watch(activeTab, (tab) => {
       :receipt="selectedReceipt"
       :is-open="isReceiptModalOpen"
       @close="isReceiptModalOpen = false; selectedReceipt = null"
+      @save="handleSaveReceiptEdit"
     />
 
     <SourcePreviewModal

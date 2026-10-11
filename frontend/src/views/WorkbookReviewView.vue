@@ -11,6 +11,9 @@ import {
   FileSpreadsheet,
   Loader2,
   RotateCcw,
+  TrendingDown,
+  TrendingUp,
+  HelpCircle,
 } from 'lucide-vue-next'
 import { api } from '@/services/api'
 import { toast } from '@/services/toast'
@@ -24,6 +27,7 @@ import type {
   BatchImportDetail,
   BatchImportFile,
   ImportBatchDetail,
+  RowDirectionOverride,
 } from '@/types/api'
 
 const route = useRoute()
@@ -60,6 +64,42 @@ const {
 const templateChoice = ref<'smart' | 'manual'>('smart')
 const isLoadingFile = ref(false)
 const loadError = ref<string | null>(null)
+
+// ── Financial Direction State ──────────────────────────────────────────────
+type InvoiceDirection = 'sales' | 'purchase' | 'unclassified'
+const bulkDirection = ref<InvoiceDirection>('unclassified')
+// Map of source_row_number → per-row direction override
+const rowDirectionOverrides = ref<Map<number, InvoiceDirection>>(new Map())
+
+const isMultiRecord = computed(() =>
+  Boolean(previewResult.value?.is_multi_record && (previewResult.value?.records?.length ?? 0) > 1),
+)
+
+const rowDirectionsList = computed((): RowDirectionOverride[] => {
+  const overrides: RowDirectionOverride[] = []
+  for (const [rowNum, dir] of rowDirectionOverrides.value.entries()) {
+    if (dir !== bulkDirection.value) {
+      overrides.push({ source_row_number: rowNum, direction: dir })
+    }
+  }
+  return overrides
+})
+
+function effectiveRowDirection(rowNum: number): InvoiceDirection {
+  return rowDirectionOverrides.value.get(rowNum) ?? bulkDirection.value
+}
+
+function setRowDirection(rowNum: number, dir: InvoiceDirection) {
+  const map = new Map(rowDirectionOverrides.value)
+  map.set(rowNum, dir)
+  rowDirectionOverrides.value = map
+}
+
+function clearRowOverrides() {
+  rowDirectionOverrides.value = new Map()
+}
+
+
 
 // Batch context (if routed via batch session)
 const batchSessionId = computed<number | null>(() => {
@@ -184,12 +224,21 @@ async function handleExtract() {
 }
 
 async function handleConfirm() {
+  const directionOptions = {
+    direction: bulkDirection.value,
+    row_directions: rowDirectionsList.value.length > 0 ? rowDirectionsList.value : undefined,
+  }
+
   if (batchSessionId.value) {
     // Batch file confirmation
     isConfirming.value = true
     confirmError.value = null
     try {
-      const updated = await api.acceptBatchWarnings(batchSessionId.value, currentFileId.value)
+      const updated = await api.acceptBatchWarnings(
+        batchSessionId.value,
+        currentFileId.value,
+        directionOptions,
+      )
       batchDetail.value = updated
       markFileImported(currentFileId.value)
       currentStep.value = 4
@@ -215,8 +264,8 @@ async function handleConfirm() {
       isConfirming.value = false
     }
   } else {
-    // Single file confirmation
-    await confirmImport()
+    // Single file confirmation — pass direction options into the workflow
+    await confirmImport(directionOptions)
     if (confirmedBatch.value) {
       markFileImported(currentFileId.value)
       toast.success('Workbook imported successfully.')
@@ -240,6 +289,8 @@ async function initWorkbookReview() {
   batchDetail.value = null
   batchFile.value = null
   loadError.value = null
+  bulkDirection.value = 'unclassified'
+  rowDirectionOverrides.value = new Map()
 
   isLoadingFile.value = true
 
@@ -537,6 +588,113 @@ onMounted(() => {
                 <p>{{ error.message }}</p>
                 <small v-if="error.cell_ref">Cell: {{ error.worksheet }}!{{ error.cell_ref }}</small>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Financial Direction Classification Card ────────────────── -->
+        <div class="glass-card direction-card">
+          <div class="direction-card-header">
+            <div class="direction-card-title">
+              <TrendingUp :size="18" class="direction-icon" />
+              <div>
+                <span class="direction-eyebrow">FINANCIAL DIRECTION</span>
+                <p class="direction-desc">
+                  Classify these invoices to power direction-aware dashboard analytics.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bulk direction picker -->
+          <div class="direction-bulk-row">
+            <span class="bulk-label">
+              {{ isMultiRecord ? 'Default for all records:' : 'Classification:' }}
+            </span>
+            <div class="direction-pill-group">
+              <button
+                v-for="opt in ([
+                  { value: 'sales', label: 'Sales (AR)', icon: 'TrendingUp' },
+                  { value: 'purchase', label: 'Purchase (AP)', icon: 'TrendingDown' },
+                  { value: 'unclassified', label: 'Unclassified', icon: 'HelpCircle' },
+                ] as const)"
+                :key="opt.value"
+                type="button"
+                class="direction-pill"
+                :class="{
+                  'direction-pill--sales': opt.value === 'sales' && bulkDirection === opt.value,
+                  'direction-pill--purchase': opt.value === 'purchase' && bulkDirection === opt.value,
+                  'direction-pill--unclassified': opt.value === 'unclassified' && bulkDirection === opt.value,
+                  'direction-pill--active': bulkDirection === opt.value,
+                }"
+                @click="bulkDirection = opt.value; clearRowOverrides()"
+              >
+                <TrendingUp v-if="opt.value === 'sales'" :size="13" />
+                <TrendingDown v-else-if="opt.value === 'purchase'" :size="13" />
+                <HelpCircle v-else :size="13" />
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Per-row overrides (only for multi-record workbooks) -->
+          <div v-if="isMultiRecord && previewResult?.records?.length" class="direction-row-overrides">
+            <div class="row-overrides-header">
+              <span class="row-overrides-label">Per-record overrides</span>
+              <button
+                v-if="rowDirectionsList.length > 0"
+                type="button"
+                class="btn-reset-overrides"
+                @click="clearRowOverrides"
+              >
+                Reset all to default
+              </button>
+            </div>
+            <div class="row-overrides-table-wrapper">
+              <table class="row-overrides-table">
+                <thead>
+                  <tr>
+                    <th class="rot-row">Row</th>
+                    <th class="rot-company">Company</th>
+                    <th class="rot-invnum">Invoice #</th>
+                    <th class="rot-direction">Direction</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="rec in previewResult.records"
+                    :key="rec.source_row_number"
+                    :class="{ 'row-overridden': rowDirectionOverrides.has(rec.source_row_number) && rowDirectionOverrides.get(rec.source_row_number) !== bulkDirection }"
+                  >
+                    <td class="rot-row">{{ rec.source_row_number }}</td>
+                    <td class="rot-company">
+                      {{ rec.normalized_data?.company_name || '—' }}
+                    </td>
+                    <td class="rot-invnum font-mono">
+                      {{ rec.normalized_data?.invoice_number || '—' }}
+                    </td>
+                    <td class="rot-direction">
+                      <div class="direction-inline-pills">
+                        <button
+                          v-for="opt in (['sales', 'purchase', 'unclassified'] as const)"
+                          :key="opt"
+                          type="button"
+                          class="direction-inline-pill"
+                          :class="{
+                            'dip--sales': opt === 'sales' && effectiveRowDirection(rec.source_row_number) === opt,
+                            'dip--purchase': opt === 'purchase' && effectiveRowDirection(rec.source_row_number) === opt,
+                            'dip--unclassified': opt === 'unclassified' && effectiveRowDirection(rec.source_row_number) === opt,
+                            'dip--active': effectiveRowDirection(rec.source_row_number) === opt,
+                          }"
+                          @click="setRowDirection(rec.source_row_number, opt)"
+                        >
+                          {{ opt === 'sales' ? 'Sales' : opt === 'purchase' ? 'Purchase' : 'Unclassified' }}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -1112,5 +1270,231 @@ onMounted(() => {
   gap: 1rem;
   flex-wrap: wrap;
   justify-content: center;
+}
+
+/* ── Direction Classification Card ───────────────────────────────── */
+.direction-card {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.direction-card-header {
+  display: flex;
+  align-items: flex-start;
+}
+
+.direction-card-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.direction-icon {
+  color: var(--accent-brand);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.direction-eyebrow {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent-brand);
+  margin-bottom: 0.2rem;
+}
+
+.direction-desc {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.direction-bulk-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.bulk-label {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.direction-pill-group {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.direction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  border: 1.5px solid var(--border-medium);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.direction-pill:hover:not(.direction-pill--active) {
+  border-color: var(--accent-brand);
+  color: var(--accent-brand);
+  background: var(--accent-soft, rgba(99, 102, 241, 0.06));
+}
+
+.direction-pill--active {
+  border-color: currentColor;
+}
+
+.direction-pill--sales.direction-pill--active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.direction-pill--purchase.direction-pill--active {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.direction-pill--unclassified.direction-pill--active {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-muted);
+  border-color: var(--border-medium);
+}
+
+/* Per-row overrides */
+.direction-row-overrides {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.row-overrides-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.row-overrides-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.btn-reset-overrides {
+  font-size: 0.75rem;
+  color: var(--accent-brand);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s;
+}
+
+.btn-reset-overrides:hover {
+  text-decoration-color: var(--accent-brand);
+}
+
+.row-overrides-table-wrapper {
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.row-overrides-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+
+.row-overrides-table th {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.row-overrides-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.row-overrides-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.row-overrides-table tbody tr.row-overridden {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.rot-row { width: 60px; color: var(--text-muted); }
+.rot-company { min-width: 140px; }
+.rot-invnum { min-width: 120px; font-family: monospace; }
+.rot-direction { width: auto; }
+
+.direction-inline-pills {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: nowrap;
+}
+
+.direction-inline-pill {
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s ease;
+}
+
+.direction-inline-pill:hover:not(.dip--active) {
+  border-color: var(--accent-brand);
+  color: var(--accent-brand);
+}
+
+.dip--sales.dip--active {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.dip--purchase.dip--active {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.dip--unclassified.dip--active {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text-muted);
+  border-color: var(--border-medium);
 }
 </style>

@@ -237,11 +237,20 @@ export interface ExtractionPreviewResponse {
 
 // ── Import Confirmation & Batch History Types ────────────────────────────────
 
+export interface RowDirectionOverride {
+  source_row_number?: number | null
+  invoice_number?: string | null
+  direction: 'sales' | 'purchase' | 'unclassified'
+}
+
 export interface ImportConfirmRequest {
   file_id: number
   template_id: number
   acknowledge_warnings?: boolean
+  direction?: 'sales' | 'purchase' | 'unclassified'
+  row_directions?: RowDirectionOverride[] | null
 }
+
 
 export interface InvoiceLineItemRead {
   id: number
@@ -281,6 +290,11 @@ export interface InvoiceRecordUpdate {
   total_amount?: number | null
   currency?: string | null
   direction?: 'sales' | 'purchase' | 'unclassified'
+}
+
+/** Payload for PATCH /api/v1/data/receipts/{receipt_id} */
+export interface ReceiptRecordUpdate {
+  direction: 'expense' | 'income' | 'unclassified'
 }
 
 export interface ReceiptLineItemRead {
@@ -622,6 +636,9 @@ export interface FinancialSummary {
   receipts_with_total: number
   receipts_without_total: number
   receipts_without_date: number
+
+  total_workspace_invoices?: number
+  total_workspace_receipts?: number
 }
 
 export interface FinancialInvoiceTrend {

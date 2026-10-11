@@ -10,6 +10,20 @@ from typing import Any
 from pydantic import model_validator, BaseModel, ConfigDict, Field
 
 
+class RowDirectionOverride(BaseModel):
+    source_row_number: int | None = None
+    invoice_number: str | None = None
+    direction: str
+
+    @model_validator(mode="after")
+    def validate_direction(self):
+        norm = self.direction.strip().lower()
+        if norm not in {"sales", "purchase", "unclassified"}:
+            raise ValueError("direction must be 'sales', 'purchase', or 'unclassified'")
+        self.direction = norm
+        return self
+
+
 class ImportConfirmRequest(BaseModel):
     """
     Request payload to confirm and persist an imported batch.
@@ -21,6 +35,23 @@ class ImportConfirmRequest(BaseModel):
         False,
         description="Must be explicitly set to True if non-fatal warnings exist on the file.",
     )
+    direction: str = Field(
+        "unclassified",
+        description="Bulk default financial direction ('sales', 'purchase', or 'unclassified')",
+    )
+    row_directions: list[RowDirectionOverride] | None = Field(
+        default=None,
+        description="Optional per-row or per-invoice financial direction overrides",
+    )
+
+    @model_validator(mode="after")
+    def validate_default_direction(self):
+        norm = self.direction.strip().lower()
+        if norm not in {"sales", "purchase", "unclassified"}:
+            raise ValueError("direction must be 'sales', 'purchase', or 'unclassified'")
+        self.direction = norm
+        return self
+
 
 
 class ValidationErrorRecordRead(BaseModel):
@@ -129,6 +160,26 @@ class ReceiptRecordRead(BaseModel):
     line_items: list[ReceiptLineItemRead] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReceiptRecordUpdate(BaseModel):
+    """Update the financial direction on a receipt record.
+
+    Only the direction field is exposed; monetary amounts and extraction
+    results are intentionally excluded from this endpoint.
+    """
+
+    direction: str = Field(..., description="Receipt direction: 'expense', 'income', or 'unclassified'")
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_direction(self):
+        norm = self.direction.strip().lower()
+        if norm not in {"expense", "income", "unclassified"}:
+            raise ValueError("direction must be 'expense', 'income', or 'unclassified'")
+        self.direction = norm
+        return self
 
 
 class ImportBatchListItem(BaseModel):

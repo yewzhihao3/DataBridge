@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { CheckCircle2, ChevronRight, RotateCcw, Trash2, X } from 'lucide-vue-next'
+import { CheckCircle2, ChevronDown, ChevronRight, ChevronUp, RotateCcw, Trash2, X } from 'lucide-vue-next'
 import type { BatchImportDetail } from '@/types/api'
 
 const props = defineProps<{ batch: BatchImportDetail; busy: boolean }>()
@@ -13,6 +13,7 @@ const emit = defineEmits<{
 }>()
 
 const filter = ref('all')
+const isTableExpanded = ref(false)
 const visible = computed(() =>
   filter.value === 'all'
     ? props.batch.files
@@ -41,6 +42,14 @@ const visible = computed(() =>
           Import {{ batch.summary.ready }} Ready Files
         </button>
         <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          @click="isTableExpanded = !isTableExpanded"
+        >
+          <component :is="isTableExpanded ? ChevronUp : ChevronDown" :size="14" />
+          {{ isTableExpanded ? 'Hide Details' : 'View File Details' }}
+        </button>
+        <button
           class="btn btn-ghost btn-sm"
           :disabled="busy"
           title="Dismiss this batch review"
@@ -52,18 +61,19 @@ const visible = computed(() =>
       </div>
     </div>
 
-    <div class="filters" role="group" aria-label="Batch status filters">
-      <button
-        v-for="item in ['all', 'ready', 'review', 'duplicate', 'failed', 'imported']"
-        :key="item"
-        :class="{ active: filter === item }"
-        @click="filter = item"
-      >
-        {{ item === 'all' ? 'All' : item }}
-      </button>
-    </div>
+    <div v-if="isTableExpanded">
+      <div class="filters" role="group" aria-label="Batch status filters">
+        <button
+          v-for="item in ['all', 'ready', 'review', 'duplicate', 'failed', 'imported']"
+          :key="item"
+          :class="{ active: filter === item }"
+          @click="filter = item"
+        >
+          {{ item === 'all' ? 'All' : item }}
+        </button>
+      </div>
 
-    <div class="table-wrap">
+      <div class="table-wrap">
       <table>
         <thead>
           <tr>
@@ -116,6 +126,7 @@ const visible = computed(() =>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <div v-if="batch.summary.failed" class="batch-footer">

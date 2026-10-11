@@ -9,6 +9,8 @@
 | M16.3 | Unified Financial Data Explorer | Complete |
 | M16.3.1 | Source Preview Reliability Hotfix | Complete |
 | M16.4 | Direction-Aware Financial Dashboard | Complete |
+| M16.4.1 | Financial Direction Editing & Workbook Classification | Complete |
+| M16.4.2 | Queue Lifecycle Cleanup, Receipt Direction Editing & Dashboard UX Polish | Complete |
 | M16.5 | Advanced Financial Analytics & Export Reconciliations | Planned |
 
 ---
@@ -178,6 +180,54 @@ Preserve operational statistics while enforcing strict financial guardrails (no 
 2. No invoice-receipt linking (receipts may represent purchases already invoiced).
 3. No cross-currency FX conversion (all sums are isolated to a single selected currency).
 4. No net profit or cash flow derivation (withheld due to incomplete document settlement data).
+
+---
+
+## M16.4.1 - Financial Direction Editing & Workbook Classification
+
+### Objectives & Capabilities
+1. **Workbook Classification**:
+   - Enables users to specify direction (`sales`, `purchase`, `unclassified`) during workbook review before final ingestion.
+   - Bulk classification selector with individual override support across parsed invoice sheets.
+2. **Post-Import Invoice Direction Editing**:
+   - Dedicated `InvoiceDetailModal.vue` direction selector allowing real-time edits to previously imported invoices.
+   - Backend audit logging and persistence across Data Explorer queries.
+
+---
+
+## M16.4.2 - Queue Lifecycle Cleanup, Receipt Direction Editing & Dashboard UX Polish
+
+### Objectives & Capabilities
+1. **Safe Queue Lifecycle Management (`useIngestionQueue.ts` & `IngestionStudioView.vue`)**:
+   - Non-destructive **Dismiss Completed**: Cleans up already imported files (`status === 'imported'`) from the local queue while preserving in-progress or queued uploads.
+   - Confirmed **Discard Unfinished**: Requires explicit user confirmation to cancel and clear queued/review items. Never deletes backend batches or imported documents.
+   - Authoritative Batch-Queue Synchronization: Resolves the "Imported vs Ready" ambiguity by synchronizing upload queue items with backend batch file session states.
+   - Streamlined Batch Review UI: Replaced redundant table in `BatchImportReview.vue` with a clean summary card and expandable "View File Details" toggle.
+   - "You're all caught up" Zen empty state when queue and batch are clear.
+
+2. **Receipt Financial Direction Editing (`ReceiptDetailModal.vue` & `data_explorer.py`)**:
+   - Interactive segmented direction control (`Expense`, `Income`, `Unclassified`) added to `ReceiptDetailModal.vue`.
+   - Backend endpoint: `PATCH /api/v1/data/receipts/{receipt_id}`.
+   - Strict validation via `ReceiptRecordUpdate` schema (`extra="forbid"`, valid directions only).
+   - Multi-tenant boundary checks and soft-deletion protection.
+   - Audit event logged: `RECEIPT_DIRECTION_UPDATED` with previous and new direction in metadata.
+   - Immediate reactive cache/list refresh across Data Explorer and Dashboard.
+
+3. **Dashboard Empty-State & Filter Clarity (`DashboardView.vue` & `analytics_service.py`)**:
+   - Distinguishes 4 distinct states for business users:
+     1. **Workspace has zero receipts**: Displays *"No receipts yet in workspace"*.
+     2. **Receipts exist in workspace, but none match selected currency**: Displays *"No receipts in {CURRENCY} — receipts exist in other currencies"*.
+     3. **Receipts match currency, but total amount is missing**: Displays *"Amount unavailable — 1 receipt has no total"*.
+     4. **No currency selected**: Displays *"Select a currency to view totals — 5 receipts recorded"*.
+   - Added `total_workspace_invoices` and `total_workspace_receipts` to `FinancialSummary` backend schema to compute these states authoritatively.
+   - Updated metric subtitles and trend chart empty messages to remove ambiguity.
+
+### Verification Results
+- **M16.4.2 Test Suite (`test_m16_4_2_queue_and_receipt_direction.py`)**: 12/12 passed
+- **Full Backend Pytest Suite**: 412/412 passed (99.33s)
+- **Frontend TypeScript Check (`vue-tsc --noEmit`)**: 0 errors
+- **Frontend Production Build (`vite build`)**: Clean (2.99s)
+- **`git diff --check`**: Clean (0 whitespace/formatting warnings)
 
 ---
 

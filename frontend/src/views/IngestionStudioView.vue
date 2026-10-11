@@ -5,7 +5,9 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   Clock,
   FileImage,
   FileSpreadsheet,
@@ -13,6 +15,7 @@ import {
   Loader2,
   Plus,
   RotateCcw,
+  Trash2,
   UploadCloud,
   X,
 } from 'lucide-vue-next'
@@ -40,12 +43,29 @@ const {
   queue,
   activeBatch: batch,
   queueSummary,
+  activeEntries,
+  completedEntries,
   addFiles,
   removeEntry,
-  clearCompleted,
+  dismissCompleted,
+  discardUnfinished,
   retryEntry,
-  markFileImported,
+  syncQueueWithBatch,
 } = useIngestionQueue()
+
+const showCompletedSection = ref(false)
+const showDiscardModal = ref(false)
+
+function handleDismissCompleted() {
+  dismissCompleted()
+  toast.info('Completed files dismissed from queue.')
+}
+
+function handleConfirmDiscard() {
+  discardUnfinished()
+  showDiscardModal.value = false
+  toast.info('Unfinished uploads cleared from queue.')
+}
 
 const isDragging = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -127,14 +147,10 @@ async function importBatchReady() {
   batchBusy.value = true
   try {
     batch.value = await api.importReadyFiles(batch.value.id)
+    syncQueueWithBatch(batch.value)
     toast.success(`${batch.value.summary.imported} files imported successfully.`)
     if (batch.value.summary.failed) {
       toast.error(`${batch.value.summary.failed} file(s) failed import.`)
-    }
-    for (const file of batch.value.files) {
-      if (file.status === 'imported') {
-        markFileImported(file.source_file_id)
-      }
     }
   } catch (err: any) {
     toast.error(err?.message || 'Batch import failed.')
@@ -195,6 +211,16 @@ onMounted(async () => {
     } catch {
       toast.error('That batch session is no longer available.')
     }
+  } else if (batch.value?.id) {
+    try {
+      batch.value = await api.getBatchImport(batch.value.id)
+    } catch {
+      batch.value = null
+    }
+  }
+
+  if (batch.value) {
+    syncQueueWithBatch(batch.value)
   }
 
   await loadRecent()
@@ -240,15 +266,14 @@ function formatIcon(fmt: FileFormat) {
         </p>
       </div>
 
-      <div class="header-actions">
+      <div v-if="completedEntries.length" class="header-actions">
         <button
-          v-if="queue.length"
           class="btn btn-secondary btn-small"
           type="button"
-          @click="clearCompleted"
+          @click="handleDismissCompleted"
         >
           <RotateCcw :size="14" />
-          Clear Completed
+          Dismiss Completed ({{ completedEntries.length }})
         </button>
       </div>
     </section>
@@ -325,16 +350,51 @@ function formatIcon(fmt: FileFormat) {
       </div>
     </div>
 
-    <!-- ── Upload Queue ────────────────────────────────────────────────── -->
-    <section v-if="queue.length" class="glass-card queue-card">
+    <!-- ── All Caught Up Banner (when all files are imported) ──────────── -->
+    <section v-if="queue.length && !activeEntries.length" class="glass-card queue-caught-up-card">
+      <div class="caught-up-inner">
+        <div class="caught-up-badge">
+          <CheckCircle2 :size="32" class="text-success" />
+        </div>
+        <h2 class="caught-up-title">You're all caught up.</h2>
+        <p class="caught-up-desc">
+          All files have been imported. You can find them in History.
+        </p>
+        <div class="caught-up-buttons">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            @click="handleDismissCompleted"
+          >
+            Dismiss Completed
+          </button>
+          <router-link to="/history" class="btn btn-secondary btn-sm">
+            View History
+          </router-link>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Active Upload Queue ─────────────────────────────────────────── -->
+    <section v-if="activeEntries.length" class="glass-card queue-card">
       <div class="queue-header">
         <h2 class="queue-title">Upload Queue</h2>
-        <span class="queue-count">{{ queue.length }} file{{ queue.length !== 1 ? 's' : '' }}</span>
+        <div class="queue-header-right">
+          <span class="queue-count">{{ activeEntries.length }} active file{{ activeEntries.length !== 1 ? 's' : '' }}</span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs text-danger"
+            @click="showDiscardModal = true"
+          >
+            <Trash2 :size="12" />
+            Discard Unfinished
+          </button>
+        </div>
       </div>
 
       <div class="queue-list">
         <div
-          v-for="entry in queue"
+          v-for="entry in activeEntries"
           :key="entry.id"
           class="queue-row"
           :class="`queue-row--${entry.status}`"
@@ -415,6 +475,108 @@ function formatIcon(fmt: FileFormat) {
         </div>
       </div>
     </section>
+
+    <!-- ── Completed Queue Section (Collapsible) ───────────────────────── -->
+    <section
+      v-if="completedEntries.length && activeEntries.length"
+      class="glass-card completed-queue-card"
+    >
+      <div class="completed-queue-header">
+        <div class="completed-header-left">
+          <CheckCircle2 :size="16" class="text-success" />
+          <h3 class="completed-title">Completed ({{ completedEntries.length }})</h3>
+        </div>
+        <div class="completed-header-actions">
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            @click="showCompletedSection = !showCompletedSection"
+          >
+            <component :is="showCompletedSection ? ChevronUp : ChevronDown" :size="14" />
+            {{ showCompletedSection ? 'Collapse' : 'Expand' }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary btn-xs"
+            @click="handleDismissCompleted"
+          >
+            Dismiss Completed
+          </button>
+        </div>
+      </div>
+
+      <div v-if="showCompletedSection" class="queue-list completed-list">
+        <div
+          v-for="entry in completedEntries"
+          :key="entry.id"
+          class="queue-row queue-row--imported"
+        >
+          <div class="queue-file-icon">
+            <component :is="formatIcon(entry.format)" :size="20" />
+          </div>
+          <div class="queue-file-info">
+            <span class="queue-filename" :title="entry.name">{{ entry.name }}</span>
+            <div class="queue-meta">
+              <span class="format-badge">{{ entry.format.toUpperCase() }}</span>
+              <span class="type-badge">{{ typeLabel[entry.suggestedType] }}</span>
+              <span class="size-badge">{{ formatBytes(entry.size) }}</span>
+            </div>
+          </div>
+          <div class="queue-status-col">
+            <div class="queue-status-badge status-imported">
+              <CheckCircle2 :size="12" />
+              Imported
+            </div>
+          </div>
+          <div class="queue-actions">
+            <button
+              class="btn btn-sm btn-ghost review-link"
+              title="View review workspace"
+              @click="navigateReview(entry)"
+            >
+              View
+              <ChevronRight :size="14" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Discard Unfinished Confirmation Modal ───────────────────────── -->
+    <div
+      v-if="showDiscardModal"
+      class="zen-modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="discard-title"
+      @click.self="showDiscardModal = false"
+    >
+      <div class="zen-modal-container discard-modal-container">
+        <div class="discard-modal-head">
+          <AlertTriangle :size="20" class="text-warning" />
+          <h3 id="discard-title" class="discard-modal-title">Discard Unfinished Uploads?</h3>
+        </div>
+        <p class="discard-modal-text">
+          In-progress review work for these files will be lost from the queue. Confirmed financial records will not be deleted.
+        </p>
+        <div class="discard-modal-actions">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            @click="showDiscardModal = false"
+          >
+            Keep in Queue
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger btn-sm"
+            @click="handleConfirmDiscard"
+          >
+            Discard Unfinished
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- ── Batch Import Review (if active batch session exists) ────────── -->
     <BatchImportReview
@@ -875,5 +1037,135 @@ function formatIcon(fmt: FileFormat) {
 
 .recent-warn {
   color: #f59e0b;
+}
+
+/* ── Queue Caught Up Card ─────────────────────────────────────────── */
+.queue-caught-up-card {
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.caught-up-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 420px;
+}
+
+.caught-up-badge {
+  margin-bottom: 0.75rem;
+}
+
+.caught-up-title {
+  margin: 0 0 0.4rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.caught-up-desc {
+  margin: 0 0 1.25rem;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+.caught-up-buttons {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+/* ── Completed Queue Card ─────────────────────────────────────────── */
+.completed-queue-card {
+  padding: 1rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  border-left: 3px solid #22c55e;
+}
+
+.completed-queue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.completed-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.completed-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.completed-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.queue-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* ── Discard Modal ────────────────────────────────────────────────── */
+.discard-modal-container {
+  max-width: 440px;
+  padding: 1.5rem;
+  background: var(--bg-surface, #1e293b);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg, 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.discard-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.discard-modal-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.discard-modal-text {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.discard-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.text-danger {
+  color: #ef4444 !important;
+}
+
+.text-success {
+  color: #22c55e !important;
+}
+
+.text-warning {
+  color: #f59e0b !important;
 }
 </style>

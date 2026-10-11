@@ -94,8 +94,59 @@ onMounted(initialize)
 onBeforeUnmount(() => { requestId++; ready = false })
 
 const activeCurrency = computed(() => data.value?.filters.currency ?? '')
+
+function formatDirectionKpi(options: {
+  type: 'invoice' | 'receipt'
+  value: string | null | undefined
+  count: number
+  withTotal: number
+}): string {
+  // 4. Currency not selected
+  if (!data.value?.monetary_values_available || !activeCurrency.value) {
+    return 'Select a currency to view totals'
+  }
+
+  // 3. No records exist in workspace
+  if (options.type === 'receipt' && (data.value?.financial_summary?.total_workspace_receipts ?? 0) === 0) {
+    return 'No receipts yet'
+  }
+  if (options.type === 'invoice' && (data.value?.financial_summary?.total_workspace_invoices ?? 0) === 0) {
+    return 'No invoices yet'
+  }
+
+  // 1. No matching records for the current filter
+  if (options.count === 0) {
+    if (options.type === 'receipt') {
+      return `No receipts in ${activeCurrency.value}`
+    } else {
+      return `No invoices in ${activeCurrency.value}`
+    }
+  }
+
+  // 2. Matching records exist but missing monetary values
+  if (options.value === null || options.value === undefined || options.withTotal === 0) {
+    return 'Amount unavailable'
+  }
+
+  return `${activeCurrency.value} ${Number(options.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function isKpiNonMonetary(options: {
+  type: 'invoice' | 'receipt'
+  value: string | null | undefined
+  count: number
+  withTotal: number
+}): boolean {
+  if (!data.value?.monetary_values_available || !activeCurrency.value) return true
+  if (options.type === 'receipt' && (data.value?.financial_summary?.total_workspace_receipts ?? 0) === 0) return true
+  if (options.type === 'invoice' && (data.value?.financial_summary?.total_workspace_invoices ?? 0) === 0) return true
+  if (options.count === 0) return true
+  if (options.value === null || options.value === undefined || options.withTotal === 0) return true
+  return false
+}
+
 const money = (value: string | null | undefined) => {
-  if (value === null || value === undefined) return 'No known value'
+  if (value === null || value === undefined) return '—'
   return `${activeCurrency.value} ${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
@@ -217,7 +268,7 @@ const hasUnclassified = computed(() => unclassifiedInvoiceCount.value > 0 || unc
           <div class="block-header">
             <div>
               <h2 id="heading-financial-overview">Financial Overview</h2>
-              <p class="section-sub">Distinct direction-classified activity in {{ activeCurrency || 'unspecified currency' }}.</p>
+              <p class="section-sub">Showing financial activity in {{ activeCurrency || 'unspecified currency' }}.</p>
             </div>
             <div class="integrity-chip" title="Direction classifications keep billing and receipts separated.">
               <ShieldCheck :size="14" /> Financial Integrity Guardrails Active
@@ -231,11 +282,26 @@ const hasUnclassified = computed(() => unclassifiedInvoiceCount.value > 0 || unc
                 <span class="kpi-title">Sales Invoiced</span>
                 <span class="direction-tag tag-sales">Sales</span>
               </div>
-              <strong class="money">{{ money(data.financial_summary?.sales_invoiced_value) }}</strong>
+              <strong
+                class="money"
+                :class="{ 'money-muted': isKpiNonMonetary({
+                  type: 'invoice',
+                  value: data.financial_summary?.sales_invoiced_value,
+                  count: data.financial_summary?.sales_invoice_count ?? 0,
+                  withTotal: data.financial_summary?.sales_invoices_with_total ?? 0,
+                }) }"
+              >
+                {{ formatDirectionKpi({
+                  type: 'invoice',
+                  value: data.financial_summary?.sales_invoiced_value,
+                  count: data.financial_summary?.sales_invoice_count ?? 0,
+                  withTotal: data.financial_summary?.sales_invoices_with_total ?? 0,
+                }) }}
+              </strong>
               <div class="kpi-meta">
                 <span>{{ data.financial_summary?.sales_invoices_with_total ?? 0 }} of {{ data.financial_summary?.sales_invoice_count ?? 0 }} sales invoices</span>
               </div>
-              <p class="kpi-hint">Amounts billed to customers · Not cash received</p>
+              <p class="kpi-hint">Amount billed to customers</p>
             </div>
 
             <!-- 2. Purchases Invoiced -->
@@ -244,11 +310,26 @@ const hasUnclassified = computed(() => unclassifiedInvoiceCount.value > 0 || unc
                 <span class="kpi-title">Purchases Invoiced</span>
                 <span class="direction-tag tag-purchase">Purchase</span>
               </div>
-              <strong class="money">{{ money(data.financial_summary?.purchases_invoiced_value) }}</strong>
+              <strong
+                class="money"
+                :class="{ 'money-muted': isKpiNonMonetary({
+                  type: 'invoice',
+                  value: data.financial_summary?.purchases_invoiced_value,
+                  count: data.financial_summary?.purchase_invoice_count ?? 0,
+                  withTotal: data.financial_summary?.purchase_invoices_with_total ?? 0,
+                }) }"
+              >
+                {{ formatDirectionKpi({
+                  type: 'invoice',
+                  value: data.financial_summary?.purchases_invoiced_value,
+                  count: data.financial_summary?.purchase_invoice_count ?? 0,
+                  withTotal: data.financial_summary?.purchase_invoices_with_total ?? 0,
+                }) }}
+              </strong>
               <div class="kpi-meta">
                 <span>{{ data.financial_summary?.purchase_invoices_with_total ?? 0 }} of {{ data.financial_summary?.purchase_invoice_count ?? 0 }} purchase invoices</span>
               </div>
-              <p class="kpi-hint">Amounts billed by suppliers · Not cash paid</p>
+              <p class="kpi-hint">Amount billed by suppliers</p>
             </div>
 
             <!-- 3. Income Receipts -->
@@ -257,11 +338,26 @@ const hasUnclassified = computed(() => unclassifiedInvoiceCount.value > 0 || unc
                 <span class="kpi-title">Income Receipts</span>
                 <span class="direction-tag tag-income">Income</span>
               </div>
-              <strong class="money">{{ money(data.financial_summary?.income_receipts_value) }}</strong>
+              <strong
+                class="money"
+                :class="{ 'money-muted': isKpiNonMonetary({
+                  type: 'receipt',
+                  value: data.financial_summary?.income_receipts_value,
+                  count: data.financial_summary?.income_receipt_count ?? 0,
+                  withTotal: data.financial_summary?.income_receipts_with_total ?? 0,
+                }) }"
+              >
+                {{ formatDirectionKpi({
+                  type: 'receipt',
+                  value: data.financial_summary?.income_receipts_value,
+                  count: data.financial_summary?.income_receipt_count ?? 0,
+                  withTotal: data.financial_summary?.income_receipts_with_total ?? 0,
+                }) }}
+              </strong>
               <div class="kpi-meta">
                 <span>{{ data.financial_summary?.income_receipts_with_total ?? 0 }} of {{ data.financial_summary?.income_receipt_count ?? 0 }} income receipts</span>
               </div>
-              <p class="kpi-hint">Documented income receipts · Not bank settlement</p>
+              <p class="kpi-hint">Receipts classified as income</p>
             </div>
 
             <!-- 4. Expense Receipts -->
@@ -270,11 +366,26 @@ const hasUnclassified = computed(() => unclassifiedInvoiceCount.value > 0 || unc
                 <span class="kpi-title">Expense Receipts</span>
                 <span class="direction-tag tag-expense">Expense</span>
               </div>
-              <strong class="money">{{ money(data.financial_summary?.expense_receipts_value) }}</strong>
+              <strong
+                class="money"
+                :class="{ 'money-muted': isKpiNonMonetary({
+                  type: 'receipt',
+                  value: data.financial_summary?.expense_receipts_value,
+                  count: data.financial_summary?.expense_receipt_count ?? 0,
+                  withTotal: data.financial_summary?.expense_receipts_with_total ?? 0,
+                }) }"
+              >
+                {{ formatDirectionKpi({
+                  type: 'receipt',
+                  value: data.financial_summary?.expense_receipts_value,
+                  count: data.financial_summary?.expense_receipt_count ?? 0,
+                  withTotal: data.financial_summary?.expense_receipts_with_total ?? 0,
+                }) }}
+              </strong>
               <div class="kpi-meta">
                 <span>{{ data.financial_summary?.expense_receipts_with_total ?? 0 }} of {{ data.financial_summary?.expense_receipt_count ?? 0 }} expense receipts</span>
               </div>
-              <p class="kpi-hint">Documented expense retail slips</p>
+              <p class="kpi-hint">Receipts classified as expenses</p>
             </div>
           </div>
         </section>
@@ -329,7 +440,7 @@ const hasUnclassified = computed(() => unclassifiedInvoiceCount.value > 0 || unc
           </div>
           <div v-else class="classified-complete-bar">
             <CheckCircle2 :size="16" class="success-icon" />
-            <span>All active documents in this scope have an assigned financial direction.</span>
+            <span>All active documents in this workspace have an assigned financial direction.</span>
           </div>
         </section>
 
@@ -362,7 +473,7 @@ const hasUnclassified = computed(() => unclassifiedInvoiceCount.value > 0 || unc
                 series-b-color="#f59e0b"
                 series-c-label="Unclassified Invoices"
                 series-c-color="#64748b"
-                empty-message="No dated invoices match the current filters."
+                :empty-message="`No invoice activity in ${activeCurrency || 'selected currency'} for this period.`"
                 :notice="`${data.summary.invoices_without_date} undated invoices are excluded from monthly charts.`"
               />
             </div>
@@ -386,7 +497,7 @@ const hasUnclassified = computed(() => unclassifiedInvoiceCount.value > 0 || unc
                 series-b-color="#f43f5e"
                 series-c-label="Unclassified Receipts"
                 series-c-color="#64748b"
-                empty-message="No dated receipts match the current filters."
+                :empty-message="`No receipt activity in ${activeCurrency || 'selected currency'} for this period.`"
                 :notice="`${data.financial_summary?.receipts_without_date ?? 0} undated receipts are excluded from monthly charts.`"
               />
             </div>
@@ -740,6 +851,12 @@ button:disabled {
   overflow-wrap: anywhere;
   color: var(--text-primary);
   margin-bottom: 0.4rem;
+}
+
+.kpi-card strong.money.money-muted {
+  font-size: clamp(0.95rem, 1.2vw, 1.15rem);
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
 .kpi-meta {

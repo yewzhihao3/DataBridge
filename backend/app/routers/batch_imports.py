@@ -4,9 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session, joinedload
 from app.config import settings
 from app.models import BatchImportFile, BatchImportSession, SourceFile, Template
+from pydantic import BaseModel, Field
 from app.schemas.batch_import import BatchImportCreate, BatchImportDetail, BatchImportFileRead, BatchImportSummary
-from app.schemas.import_batch import ImportConfirmRequest
+from app.schemas.import_batch import ImportConfirmRequest, RowDirectionOverride
 from app.schemas.extraction import ExtractionPreviewResponse, ExtractionRequest
+
+class BatchFileConfirmRequest(BaseModel):
+    direction: str = Field("unclassified")
+    row_directions: list[RowDirectionOverride] | None = None
+
 from app.security import Identity, audit, current_identity
 from app.services.storage import storage
 from app.services.workbook_profiler import profile_workbook
@@ -176,12 +182,25 @@ def review_preview(session_id: int, file_id: int, template_id: int | None = None
     return extract_preview(ExtractionRequest(file_id=item.source_file_id, template_id=item.template_id), db)
 
 @router.post("/{session_id}/files/{file_id}/accept-warnings", response_model=BatchImportDetail)
-def accept_warnings(session_id: int, file_id: int, identity: Identity = Depends(current_identity), db: Session = Depends(get_db)):
+def accept_warnings(
+    session_id: int,
+    file_id: int,
+    payload: BatchFileConfirmRequest | None = None,
+    identity: Identity = Depends(current_identity),
+    db: Session = Depends(get_db),
+):
     item = _review_item(session_id, file_id, db)
     if item.status == "imported": return get_batch(session_id, db)
     item.status = "importing"; db.commit()
     try:
-        result = confirm_import(ImportConfirmRequest(file_id=item.source_file_id, template_id=item.template_id, acknowledge_warnings=True), db)
+        confirm_req = ImportConfirmRequest(
+            file_id=item.source_file_id,
+            template_id=item.template_id,
+            acknowledge_warnings=True,
+            direction=payload.direction if payload else "unclassified",
+            row_directions=payload.row_directions if payload else None,
+        )
+        result = confirm_import(confirm_req, db)
         item.import_batch_id, item.status, item.error_message, item.issues = result.id, "imported", None, []
         audit(db, identity.membership.organization_id, identity.user.id, "BATCH_REVIEW_ACCEPTED", "batch_import_files", item.id)
         db.commit()

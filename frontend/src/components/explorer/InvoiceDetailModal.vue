@@ -6,10 +6,13 @@ import {
   Edit2,
   ExternalLink,
   FileSpreadsheet,
+  HelpCircle,
   Layers,
   Loader2,
   Save,
   Tag,
+  TrendingDown,
+  TrendingUp,
   X,
 } from 'lucide-vue-next'
 
@@ -45,6 +48,7 @@ watch(
         invoice_date: newInv.invoice_date ?? null,
         total_amount: newInv.total_amount == null ? null : Number(newInv.total_amount),
         currency: newInv.currency ?? null,
+        direction: newInv.direction ?? 'unclassified',
       }
       isEditing.value = false
       editError.value = ''
@@ -87,6 +91,7 @@ function startEdit() {
     invoice_date: props.invoice.invoice_date ?? null,
     total_amount: props.invoice.total_amount == null ? null : Number(props.invoice.total_amount),
     currency: props.invoice.currency ?? null,
+    direction: props.invoice.direction ?? 'unclassified',
   }
   isEditing.value = true
   editError.value = ''
@@ -391,6 +396,35 @@ function handleKeydown(e: KeyboardEvent) {
                 class="zen-input"
               />
             </div>
+
+            <!-- Direction picker inside the edit form -->
+            <div class="zen-form-group zen-form-group--full">
+              <label>Financial Direction</label>
+              <div class="zen-direction-pills">
+                <button
+                  v-for="opt in [
+                    { value: 'sales', label: 'Sales (AR)' },
+                    { value: 'purchase', label: 'Purchase (AP)' },
+                    { value: 'unclassified', label: 'Unclassified' },
+                  ] as const"
+                  :key="opt.value"
+                  type="button"
+                  class="zen-dir-pill"
+                  :class="{
+                    'zen-dir-pill--sales': opt.value === 'sales' && editForm.direction === opt.value,
+                    'zen-dir-pill--purchase': opt.value === 'purchase' && editForm.direction === opt.value,
+                    'zen-dir-pill--unclassified': opt.value === 'unclassified' && editForm.direction === opt.value,
+                    'zen-dir-pill--active': editForm.direction === opt.value,
+                  }"
+                  @click="editForm.direction = opt.value"
+                >
+                  <TrendingUp v-if="opt.value === 'sales'" :size="12" />
+                  <TrendingDown v-else-if="opt.value === 'purchase'" :size="12" />
+                  <HelpCircle v-else :size="12" />
+                  {{ opt.label }}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="zen-edit-actions">
@@ -433,6 +467,27 @@ function handleKeydown(e: KeyboardEvent) {
             <span class="zen-card-label">Total Amount</span>
             <span class="zen-card-value font-mono total-value">
               {{ formatCurrency(invoice.total_amount, invoice.currency) }}
+            </span>
+          </div>
+          <!-- Direction badge card -->
+          <div class="zen-card">
+            <span class="zen-card-label">Financial Direction</span>
+            <span
+              class="zen-dir-badge"
+              :class="{
+                'zen-dir-badge--sales': invoice.direction === 'sales',
+                'zen-dir-badge--purchase': invoice.direction === 'purchase',
+                'zen-dir-badge--unclassified': !invoice.direction || invoice.direction === 'unclassified',
+              }"
+            >
+              <TrendingUp v-if="invoice.direction === 'sales'" :size="13" />
+              <TrendingDown v-else-if="invoice.direction === 'purchase'" :size="13" />
+              <HelpCircle v-else :size="13" />
+              {{
+                invoice.direction === 'sales' ? 'Sales (AR)'
+                : invoice.direction === 'purchase' ? 'Purchase (AP)'
+                : 'Unclassified'
+              }}
             </span>
           </div>
         </div>
@@ -1003,5 +1058,85 @@ function handleKeydown(e: KeyboardEvent) {
 
 .btn-source-link:hover {
   background: var(--border-medium, #dbeafe);
+}
+
+/* ── Direction Badge (view mode) ──────────────────────────────── */
+.zen-dir-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.zen-dir-badge--sales {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.zen-dir-badge--purchase {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.zen-dir-badge--unclassified {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text-muted);
+  border-color: var(--border-subtle);
+}
+
+/* ── Direction Pills (edit mode) ──────────────────────────────── */
+.zen-form-group--full {
+  grid-column: 1 / -1;
+}
+
+.zen-direction-pills {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+}
+
+.zen-dir-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 9999px;
+  border: 1.5px solid var(--border-medium);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zen-dir-pill:hover:not(.zen-dir-pill--active) {
+  border-color: var(--accent-brand);
+  color: var(--accent-brand);
+}
+
+.zen-dir-pill--sales.zen-dir-pill--active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.zen-dir-pill--purchase.zen-dir-pill--active {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.zen-dir-pill--unclassified.zen-dir-pill--active {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text-muted);
+  border-color: var(--border-medium);
 }
 </style>
