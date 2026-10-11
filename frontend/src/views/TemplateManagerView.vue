@@ -1,3 +1,4 @@
+<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { suggestionDraft, reviewedTemplateId } from '@/composables/useSuggestionDraft'
@@ -987,6 +988,8 @@ onMounted(async () => {
           >
             Refresh
           </button>
+        </div>
+
         <div v-if="userTemplates.length === 0" class="empty-state">
           <div class="empty-icon">📋</div>
           <h3>No User Templates Yet</h3>
