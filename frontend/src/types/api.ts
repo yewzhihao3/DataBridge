@@ -44,6 +44,7 @@ export interface DocumentDetail {
   validation_items: DocumentValidationItem[]
   ai_notes: string[]
   error_message?: string | null
+  original_filename?: string | null
   processed_at: string
 }
 export interface DocumentUploadResponse { document_id: number; filename: string; media_type: string; size: number; page_count?: number | null; status: string }
@@ -416,6 +417,15 @@ export interface ApiError {
   message: string
   detail?: any
   isWarningAcknowledgmentRequired?: boolean
+  isDuplicateConflict?: boolean
+  duplicateRecordId?: number | null
+  duplicateDocumentType?: string | null
+  duplicateDocNumber?: string | null
+  duplicateCounterparty?: string | null
+  duplicateDate?: string | null
+  duplicateAmount?: string | null
+  duplicateCurrency?: string | null
+  duplicateReason?: string | null
   validationErrors?: string[]
 }
 
@@ -437,6 +447,7 @@ export interface InvoiceListItem {
   source_file_id?: number | null
   source_filename?: string | null
   source_media_type?: string | null
+  connected_count?: number
 }
 
 export interface InvoiceDetailBatchInfo {
@@ -466,6 +477,7 @@ export interface InvoiceDetailResponse {
   batch?: InvoiceDetailBatchInfo | null
   line_items: InvoiceLineItemRead[]
   raw_data?: Record<string, any> | null
+  connected_count?: number
 }
 
 export interface ReceiptListItem {
@@ -486,6 +498,7 @@ export interface ReceiptListItem {
   source_file_id?: number | null
   source_filename?: string | null
   source_media_type?: string | null
+  connected_count?: number
 }
 
 export interface ReceiptDetailResponse {
@@ -510,6 +523,7 @@ export interface ReceiptDetailResponse {
   batch?: InvoiceDetailBatchInfo | null
   line_items: ReceiptLineItemRead[]
   raw_data?: Record<string, any> | null
+  connected_count?: number
 }
 
 export interface UnifiedDocumentListItem {
@@ -530,6 +544,7 @@ export interface UnifiedDocumentListItem {
   line_item_count: number
   status: string
   created_at: string
+  connected_count?: number
 }
 
 export interface LineItemListItem {
@@ -712,4 +727,68 @@ export interface DashboardResponse {
   financial_summary?: FinancialSummary
   financial_invoice_trends?: FinancialInvoiceTrend[]
   financial_receipt_trends?: FinancialReceiptTrend[]
+}
+
+// ── Document Relationship & Suggestion Types ─────────────────────────────────
+
+export type EntityType = 'invoice' | 'receipt' | 'source_file'
+export type RelationshipType = 'related_to' | 'supports'
+export type MatchCategory = 'exact_file_duplicate' | 'possible_duplicate' | 'possible_related'
+
+export interface RelatedDocumentSummary {
+  entity_type: EntityType
+  entity_id: number
+  document_number?: string | null
+  counterparty?: string | null
+  document_date?: string | null
+  total_amount?: number | string | null
+  currency?: string | null
+  direction?: string | null
+  filename?: string | null
+  media_type?: string | null
+  file_size?: number | null
+  source_file_id?: number | null
+}
+
+export interface RelationshipRead {
+  id: number
+  relationship_type: RelationshipType
+  direction_semantic: 'symmetric' | 'supports' | 'supported_by' | string
+  source_type: EntityType
+  source_id: number
+  target_type: EntityType
+  target_id: number
+  related_entity: RelatedDocumentSummary
+  created_by_user_id?: number | null
+  created_at: string
+}
+
+export interface RelationshipListResponse {
+  items: RelationshipRead[]
+  total: number
+}
+
+export interface RelationshipCreateRequest {
+  source_type: EntityType
+  source_id: number
+  target_type: EntityType
+  target_id: number
+  relationship_type: RelationshipType
+}
+
+export interface SuggestionItem {
+  candidate_type: EntityType
+  candidate_id: number
+  match_category: MatchCategory
+  heuristic_score: number
+  evidence: string[]
+  candidate_summary: RelatedDocumentSummary
+  is_already_linked: boolean
+}
+
+export interface SuggestionListResponse {
+  target_type: EntityType
+  target_id: number
+  suggestions: SuggestionItem[]
+  total: number
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import {
   X,
   FileSpreadsheet,
@@ -47,11 +47,21 @@ const isDocument = computed(() => {
   return false
 })
 
-const documentPreviewUrl = computed(() => {
-  if (isDocument.value && props.sourceFileId) {
-    return `/api/v1/documents/${props.sourceFileId}/preview`
+const documentBlobUrl = ref<string | null>(null)
+const documentMediaType = ref<string | null>(null)
+
+const isImage = computed(() => {
+  if (documentMediaType.value) {
+    return documentMediaType.value.startsWith('image/')
   }
-  return null
+  if (props.mediaType) {
+    return props.mediaType.startsWith('image/')
+  }
+  if (props.filename) {
+    const ext = props.filename.toLowerCase().split('.').pop()
+    if (ext && ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'].includes(ext)) return true
+  }
+  return false
 })
 
 watch(
@@ -66,7 +76,19 @@ watch(
   { immediate: true },
 )
 
+onBeforeUnmount(() => {
+  if (documentBlobUrl.value) {
+    URL.revokeObjectURL(documentBlobUrl.value)
+    documentBlobUrl.value = null
+  }
+})
+
 function resetState() {
+  if (documentBlobUrl.value) {
+    URL.revokeObjectURL(documentBlobUrl.value)
+    documentBlobUrl.value = null
+  }
+  documentMediaType.value = null
   isLoading.value = false
   error.value = ''
   availableSheets.value = []
@@ -81,8 +103,18 @@ async function initializePreview() {
   if (!props.sourceFileId) return
   resetState()
 
-  // If document (PDF / image), document preview url is used
+  // If document (PDF / image), fetch authenticated binary and display via managed blob URL
   if (isDocument.value) {
+    isLoading.value = true
+    try {
+      const blob = await api.getDocumentPreview(props.sourceFileId)
+      documentMediaType.value = blob.type || props.mediaType || null
+      documentBlobUrl.value = URL.createObjectURL(blob)
+    } catch (err: any) {
+      error.value = 'Preview is unavailable for this document. You can download the original file instead.'
+    } finally {
+      isLoading.value = false
+    }
     return
   }
 
@@ -278,17 +310,53 @@ function onBackdropClick(e: MouseEvent) {
 
         <!-- Document Preview (PDF or Image) -->
         <div v-if="isDocument" class="document-preview-container">
-          <div v-if="documentPreviewUrl" class="document-frame-wrap">
+          <!-- Loading State -->
+          <div v-if="isLoading" class="preview-loading">
+            <div class="spinner" />
+            <p>Loading document preview...</p>
+          </div>
+
+          <!-- Error / Fallback State -->
+          <div v-else-if="error" class="feedback-banner banner-warning">
+            <AlertCircle :size="18" class="banner-icon" />
+            <div class="banner-content">
+              <p class="banner-text">{{ error }}</p>
+              <div class="banner-action mt-2">
+                <button
+                  type="button"
+                  class="btn-zen-download"
+                  @click="handleDownload"
+                >
+                  <Download :size="14" />
+                  <span>Download Original File</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Image Preview -->
+          <div v-else-if="isImage && documentBlobUrl" class="document-image-wrap">
+            <img
+              :src="documentBlobUrl"
+              class="document-preview-img"
+              :alt="filename || 'Document preview'"
+            />
+          </div>
+
+          <!-- PDF or Embed Preview -->
+          <div v-else-if="documentBlobUrl" class="document-frame-wrap">
             <iframe
-              :src="documentPreviewUrl"
+              :src="documentBlobUrl"
               class="document-iframe"
               title="Document Source Preview"
             />
           </div>
+
+          <!-- Document Actions Footer -->
           <div class="document-actions-footer">
             <a
-              v-if="documentPreviewUrl"
-              :href="documentPreviewUrl"
+              v-if="documentBlobUrl"
+              :href="documentBlobUrl"
               target="_blank"
               rel="noopener noreferrer"
               class="btn-open-tab"
@@ -616,6 +684,26 @@ function onBackdropClick(e: MouseEvent) {
   border-radius: 0.375rem;
   overflow: hidden;
   background: #f8fafc;
+}
+
+.document-image-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: 0.375rem;
+  overflow: auto;
+  background: #0f172a;
+  padding: 1rem;
+}
+
+.document-preview-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 0.25rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
 }
 
 .document-iframe {

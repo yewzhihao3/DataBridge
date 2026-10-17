@@ -36,6 +36,10 @@ import type {
   BatchImportDetail,
   DocumentDetail,
   DocumentUploadResponse,
+  RelationshipRead,
+  RelationshipListResponse,
+  RelationshipCreateRequest,
+  SuggestionListResponse,
 } from '@/types/api'
 
 async function request<T>(
@@ -83,11 +87,50 @@ async function request<T>(
       typeof errorMsg === 'string' &&
       errorMsg.toLowerCase().includes('warning')
 
+    const isDuplicate =
+      res.status === 409 &&
+      typeof errorMsg === 'string' &&
+      errorMsg.toLowerCase().includes('duplicate')
+
+    let dupRecordId: number | null = null
+    const headerRecId = res.headers.get('x-duplicate-record-id')
+    if (headerRecId && !isNaN(Number(headerRecId))) {
+      dupRecordId = Number(headerRecId)
+    } else if (typeof errorMsg === 'string') {
+      const match = errorMsg.match(/ID #(\d+)/i)
+      if (match && match[1]) dupRecordId = Number(match[1])
+    }
+
+    let dupDocType: string | null = res.headers.get('x-duplicate-document-type')
+    if (!dupDocType && typeof errorMsg === 'string') {
+      if (errorMsg.toLowerCase().includes('receipt')) dupDocType = 'receipt'
+      else if (errorMsg.toLowerCase().includes('invoice')) dupDocType = 'invoice'
+    }
+
+    if (typeof errorMsg === 'string') {
+      errorMsg = errorMsg.replace(/Set acknowledge_duplicate=true to confirm\.?/gi, '').trim()
+    }
+
+    let dupDocNum: string | null = null
+    let dupCounterparty: string | null = null
+    if (typeof errorMsg === 'string') {
+      const numMatch = errorMsg.match(/(?:Invoice|Receipt) number '([^']+)'/i)
+      if (numMatch && numMatch[1]) dupDocNum = numMatch[1]
+      const partyMatch = errorMsg.match(/from '([^']+)'/i)
+      if (partyMatch && partyMatch[1]) dupCounterparty = partyMatch[1]
+    }
+
     const apiError: ApiError = {
       status: res.status,
       message: errorMsg,
       detail: errorDetail?.detail,
       isWarningAcknowledgmentRequired: isWarningAck,
+      isDuplicateConflict: isDuplicate,
+      duplicateRecordId: dupRecordId,
+      duplicateDocumentType: dupDocType,
+      duplicateDocNumber: dupDocNum,
+      duplicateCounterparty: dupCounterparty,
+      duplicateReason: isDuplicate ? errorMsg : undefined,
       validationErrors: Array.isArray(errorDetail?.detail)
         ? errorDetail.detail.map(
           (error: any) =>
@@ -716,5 +759,44 @@ export const api = {
     window.URL.revokeObjectURL(blobUrl)
 
     return filename
+  },
+
+  // ── Document Relationships & Suggestions ───────────────────────────────────
+
+  /** List active confirmed relationships for an entity. */
+  async getRelationships(
+    entityType: string,
+    entityId: number,
+  ): Promise<RelationshipListResponse> {
+    return request<RelationshipListResponse>(`/relationships/${entityType}/${entityId}`)
+  },
+
+  /** Create an explicit relationship between two documents. */
+  async createRelationship(
+    payload: RelationshipCreateRequest,
+  ): Promise<RelationshipRead> {
+    return request<RelationshipRead>('/relationships', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  },
+
+  /** Remove an explicit relationship edge without modifying documents. */
+  async deleteRelationship(relationshipId: number): Promise<void> {
+    return request<void>(`/relationships/${relationshipId}`, {
+      method: 'DELETE',
+    })
+  },
+
+  /** Retrieve heuristic and duplicate suggestions for a focal document. */
+  async getRelationshipSuggestions(
+    entityType: string,
+    entityId: number,
+    limit = 10,
+  ): Promise<SuggestionListResponse> {
+    return request<SuggestionListResponse>(
+      `/relationships/suggestions/${entityType}/${entityId}?limit=${limit}`,
+    )
   },
 }

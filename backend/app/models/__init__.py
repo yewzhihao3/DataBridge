@@ -7,6 +7,7 @@ from app.models.source_file import SourceFile
 from app.models.batch_import import BatchImportSession, BatchImportFile
 from app.models.document import DocumentExtraction
 from app.models.template import Template, TemplateFieldMapping
+from app.models.relationship import DocumentRelationship
 
 __all__ = [
     "SourceFile",
@@ -21,6 +22,7 @@ __all__ = [
     "DocumentExtraction",
     "ReceiptRecord",
     "ReceiptLineItem",
+    "DocumentRelationship",
 ]
 
 

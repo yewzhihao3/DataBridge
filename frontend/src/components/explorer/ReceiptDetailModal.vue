@@ -1,27 +1,35 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
+  ArrowLeft,
   CreditCard,
   Edit2,
   ExternalLink,
   FileText,
+  Link2,
   Loader2,
   Receipt,
   Tag,
   X,
 } from 'lucide-vue-next'
 
-import type { ReceiptDetailResponse, ReceiptRecordUpdate } from '@/types/api'
+import ConnectedDocumentsPanel from '@/components/explorer/ConnectedDocumentsPanel.vue'
+import type { EntityType, ReceiptDetailResponse, ReceiptRecordUpdate } from '@/types/api'
 
 const props = defineProps<{
   receipt: ReceiptDetailResponse | null
   isOpen: boolean
+  previousDocument?: { type: string; id: number; title: string; subtitle?: string } | null
 }>()
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'navigate-back'): void
   (e: 'save', payload: { receiptId: number; form: ReceiptRecordUpdate }): void
   (e: 'edit', receipt: ReceiptDetailResponse): void
+  (e: 'view-related', payload: { type: EntityType; id: number }): void
+  (e: 'count-changed', count: number): void
+  (e: 'relationship-mutated', payload: { action: 'linked' | 'unlinked'; partnerType: EntityType; partnerId: number }): void
 }>()
 
 // ── Direction Editing State ────────────────────────────────────────────────
@@ -195,6 +203,14 @@ function onBackdropClick(e: MouseEvent) {
                 <Edit2 :size="12" />
                 <span>Edit Direction</span>
               </button>
+              <span
+                v-if="(receipt.connected_count ?? 0) > 0"
+                class="receipt-linked-chip"
+                title="Connected documents"
+              >
+                <Link2 :size="11" />
+                {{ receipt.connected_count }} linked
+              </span>
             </div>
           </div>
           <span class="text-xs text-slate-500 font-mono mt-0.5">
@@ -203,14 +219,16 @@ function onBackdropClick(e: MouseEvent) {
         </div>
         <div class="header-right-actions">
           <button
+            v-if="previousDocument"
             type="button"
-            class="btn-edit-receipt"
-            title="Edit receipt details and line items"
-            @click="emit('edit', receipt)"
+            class="btn-nav-back"
+            :title="`Return to ${previousDocument.title}`"
+            @click="emit('navigate-back')"
           >
-            <Edit2 :size="13" />
-            <span>Edit Receipt</span>
+            <ArrowLeft :size="13" />
+            <span>Back to {{ previousDocument.subtitle || previousDocument.title }}</span>
           </button>
+
           <button
             type="button"
             class="btn-close"
@@ -439,6 +457,16 @@ function onBackdropClick(e: MouseEvent) {
             </div>
           </div>
         </div>
+
+        <!-- Connected Documents Panel -->
+        <ConnectedDocumentsPanel
+          entity-type="receipt"
+          :entity-id="receipt.id"
+          :entity-title="receipt.merchant_name + (receipt.receipt_number ? ' · ' + receipt.receipt_number : '')"
+          @view-related="(p) => emit('view-related', p)"
+          @count-changed="(cnt) => { if (receipt) receipt.connected_count = cnt; emit('count-changed', cnt) }"
+          @relationship-mutated="(payload) => emit('relationship-mutated', payload)"
+        />
       </div>
 
       <!-- Modal Footer -->
@@ -460,15 +488,35 @@ function onBackdropClick(e: MouseEvent) {
 </template>
 
 <style scoped>
+.btn-nav-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-nav-back:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #e0f2fe;
+}
+
 .zen-modal-overlay {
   position: fixed;
   inset: 0;
   background: var(--overlay);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
+  z-index: 1000;
   padding: 1rem;
 }
 
@@ -477,7 +525,7 @@ function onBackdropClick(e: MouseEvent) {
   border-radius: 0.5rem;
   box-shadow: var(--shadow-lg);
   width: 100%;
-  max-width: 52rem;
+  max-width: 64rem;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -932,5 +980,18 @@ function onBackdropClick(e: MouseEvent) {
   margin: 0;
   font-size: 0.75rem;
   color: #ef4444;
+}
+
+.receipt-linked-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--accent-soft, rgba(99, 102, 241, 0.08));
+  color: var(--accent-brand);
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--accent-border, rgba(99, 102, 241, 0.25));
+  font-size: 0.7rem;
+  font-weight: 600;
 }
 </style>

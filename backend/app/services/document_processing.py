@@ -153,12 +153,22 @@ def parse_invoice(pages: list[dict[str, Any]]) -> tuple[dict[str, dict], list[di
 
 def detect_document_type(pages: list[dict[str, Any]]) -> tuple[str, str]:
     text = "\n".join(page.get("text", "") for page in pages).lower()
+    if "tax invoice" in text or "tax inv" in text:
+        return "invoice", "high"
     receipt_signals = ("receipt", "thank you", "cash", "change", "amount paid", "subtotal")
-    invoice_signals = ("invoice", "bill to", "due date", "invoice date", "payment terms")
+    invoice_signals = ("invoice", "bill to", "due date", "invoice date", "payment terms", "invoice #", "invoice no", "inv #", "inv no")
     receipt_score = sum(1 for signal in receipt_signals if signal in text)
     invoice_score = sum(1 for signal in invoice_signals if signal in text)
-    if receipt_score >= 2 and receipt_score > invoice_score: return "receipt", "high" if receipt_score >= 3 else "medium"
-    if invoice_score >= 2 and invoice_score >= receipt_score: return "invoice", "high" if invoice_score >= 3 else "medium"
+    if "invoice" in text and "receipt" not in text and invoice_score >= 1:
+        return "invoice", "high" if invoice_score >= 2 else "medium"
+    if receipt_score >= 2 and receipt_score > invoice_score:
+        return "receipt", "high" if receipt_score >= 3 else "medium"
+    if invoice_score >= 2 and invoice_score >= receipt_score:
+        return "invoice", "high" if invoice_score >= 3 else "medium"
+    if invoice_score > receipt_score:
+        return "invoice", "medium"
+    if receipt_score > invoice_score:
+        return "receipt", "medium"
     return "unknown", "low"
 
 def _amount(value: str) -> str:
@@ -427,6 +437,9 @@ def map_ai_extraction_to_review_state(
     set_field("merchant_name", h.merchant_name)
     set_field("receipt_number", h.receipt_number)
     set_field("transaction_date", h.transaction_date)
+    set_field("company_name", h.merchant_name, conf_name="merchant_name", evidence_name="merchant_name")
+    set_field("invoice_number", h.receipt_number, conf_name="receipt_number", evidence_name="receipt_number")
+    set_field("invoice_date", h.transaction_date, conf_name="transaction_date", evidence_name="transaction_date")
     set_field("transaction_time", h.transaction_time)
     set_field("currency", h.currency)
     set_field("subtotal", h.subtotal)
@@ -511,9 +524,16 @@ def process_document_pipeline(
             image_bytes = path.read_bytes()
             result = active_provider.extract_receipt(image_bytes, media_type)
             fields, lines, warnings = map_ai_extraction_to_review_state(result)
+            raw_text = (result.raw_response_text or "").lower()
+            doc_num = (result.extraction.header.receipt_number or "").upper()
+            doc_type = "receipt"
+            if "tax invoice" in raw_text or "tax inv" in raw_text or doc_num.startswith("INV"):
+                doc_type = "invoice"
+            elif "invoice" in raw_text and "receipt" not in raw_text:
+                doc_type = "invoice"
             return {
                 "status": "needs_review",
-                "document_type": "receipt",
+                "document_type": doc_type,
                 "provider": f"deepseek_vision:{result.model}",
                 "processing_method": "vision_llm",
                 "ocr_status": "not_required",
@@ -577,9 +597,16 @@ def process_document_pipeline(
                     multipage_warn = f"Multipage document ({len(pages)} pages): AI Vision extracted page {target_page_idx + 1}. Verify line items from all pages before importing."
                     if multipage_warn not in warnings:
                         warnings.append(multipage_warn)
+                raw_text = (result.raw_response_text or "").lower()
+                doc_num = (result.extraction.header.receipt_number or "").upper()
+                doc_type = "receipt"
+                if "tax invoice" in raw_text or "tax inv" in raw_text or doc_num.startswith("INV"):
+                    doc_type = "invoice"
+                elif "invoice" in raw_text and "receipt" not in raw_text:
+                    doc_type = "invoice"
                 return {
                     "status": "needs_review",
-                    "document_type": "receipt",
+                    "document_type": doc_type,
                     "provider": f"deepseek_vision:{result.model}",
                     "processing_method": "scanned_pdf_vision" if has_scanned else "vision_llm",
                     "ocr_status": "not_required",

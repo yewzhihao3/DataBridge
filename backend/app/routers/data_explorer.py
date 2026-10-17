@@ -18,6 +18,7 @@ from app.security import audit
 from app.tenancy import get_tenant_db as get_db
 from app.models.invoice import ImportBatch, InvoiceLineItem, InvoiceRecord, ReceiptLineItem, ReceiptRecord
 from app.services.business_query import active_record_scope, invoice_filter_conditions, receipt_filter_conditions
+from app.services.relationship_service import get_connected_counts_batch
 from app.models.source_file import SourceFile
 from app.schemas.data_explorer import (
     DataExplorerFilterOptions,
@@ -201,6 +202,10 @@ def list_invoices(
     offset = (page - 1) * page_size
     rows = data_query.offset(offset).limit(page_size).all()
 
+    org_id = db.info.get("organization_id", 0)
+    inv_ids = [rec.id for rec, *_ in rows]
+    connected_counts = get_connected_counts_batch(db, org_id, "invoice", inv_ids)
+
     items: list[InvoiceListItem] = []
     for rec, li_count, src_name, src_id, src_media in rows:
         items.append(
@@ -220,6 +225,7 @@ def list_invoices(
                 source_file_id=src_id,
                 source_filename=src_name,
                 source_media_type=src_media,
+                connected_count=connected_counts.get(rec.id, 0),
             )
         )
 
@@ -288,6 +294,9 @@ def get_invoice_detail(
             imported_at=record.batch.imported_at,
         )
 
+    org_id = db.info.get("organization_id", 0)
+    connected_count = get_connected_counts_batch(db, org_id, "invoice", [record.id]).get(record.id, 0)
+
     return InvoiceDetailResponse(
         id=record.id,
         batch_id=record.batch_id,
@@ -304,6 +313,7 @@ def get_invoice_detail(
         batch=batch_info,
         line_items=[InvoiceLineItemRead.model_validate(li) for li in record.line_items],
         raw_data=raw_dict,
+        connected_count=connected_count,
     )
 
 
@@ -391,6 +401,7 @@ def update_invoice(
         batch=batch_info,
         line_items=[InvoiceLineItemRead.model_validate(li) for li in record.line_items],
         raw_data=raw_dict,
+        connected_count=get_connected_counts_batch(db, db.info.get("organization_id", 0), "invoice", [record.id]).get(record.id, 0),
     )
 
 
@@ -523,6 +534,10 @@ def list_receipts(
     offset = (page - 1) * page_size
     rows = data_query.offset(offset).limit(page_size).all()
 
+    org_id = db.info.get("organization_id", 0)
+    rec_ids = [rec.id for rec, *_ in rows]
+    connected_counts = get_connected_counts_batch(db, org_id, "receipt", rec_ids)
+
     items: list[ReceiptListItem] = []
     for rec, li_count, src_name, src_id, src_media in rows:
         items.append(
@@ -544,6 +559,7 @@ def list_receipts(
                 source_file_id=src_id,
                 source_filename=src_name,
                 source_media_type=src_media,
+                connected_count=connected_counts.get(rec.id, 0),
             )
         )
 
@@ -633,6 +649,7 @@ def get_receipt_detail(
         batch=batch_info,
         line_items=[ReceiptLineItemRead.model_validate(li) for li in record.line_items],
         raw_data=raw_dict,
+        connected_count=get_connected_counts_batch(db, db.info.get("organization_id", 0), "receipt", [record.id]).get(record.id, 0),
     )
 
 
@@ -868,6 +885,7 @@ def update_receipt(
         batch=batch_info,
         line_items=[ReceiptLineItemRead.model_validate(li) for li in refreshed_record.line_items],
         raw_data=raw_dict,
+        connected_count=get_connected_counts_batch(db, db.info.get("organization_id", 0), "receipt", [refreshed_record.id]).get(refreshed_record.id, 0),
     )
 
 
@@ -1013,8 +1031,15 @@ def list_documents(
     offset = (page - 1) * page_size
     rows = doc_query.offset(offset).limit(page_size).all()
 
+    org_id = db.info.get("organization_id", 0)
+    page_inv_ids = [r.record_id for r in rows if r.doc_type == "invoice"]
+    page_rec_ids = [r.record_id for r in rows if r.doc_type == "receipt"]
+    inv_counts = get_connected_counts_batch(db, org_id, "invoice", page_inv_ids)
+    rec_counts = get_connected_counts_batch(db, org_id, "receipt", page_rec_ids)
+
     items: list[UnifiedDocumentListItem] = []
     for r in rows:
+        cnt = inv_counts.get(r.record_id, 0) if r.doc_type == "invoice" else rec_counts.get(r.record_id, 0)
         items.append(
             UnifiedDocumentListItem(
                 id=f"{r.doc_type}_{r.record_id}",
@@ -1034,6 +1059,7 @@ def list_documents(
                 line_item_count=r.line_item_count,
                 status=r.status,
                 created_at=r.created_at,
+                connected_count=cnt,
             )
         )
 

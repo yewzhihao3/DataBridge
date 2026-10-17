@@ -36,6 +36,7 @@ class DocumentExtractionResponse(BaseModel):
     validation_items: list[DocumentValidationItem] = Field(default_factory=list)
     ai_notes: list[str] = Field(default_factory=list)
     error_message: str | None = None
+    original_filename: str | None = None
     processed_at: datetime
 
 class DocumentConfirmRequest(BaseModel):
@@ -60,6 +61,14 @@ class DocumentConfirmRequest(BaseModel):
     rounding_adjustment: Decimal | None = None
     line_items: list[dict] = Field(default_factory=list)
     direction: str | None = None
+    acknowledge_duplicate: bool = Field(
+        False,
+        description="Set to True to confirm import despite detected duplicate or repeat transaction warning.",
+    )
+    acknowledge_warnings: bool = Field(
+        False,
+        description="Alias for acknowledge_duplicate for backwards compatibility with warning conventions.",
+    )
 
     @model_validator(mode="after")
     def identifiers(self):

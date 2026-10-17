@@ -22,6 +22,7 @@ from app.routers.analytics import router as analytics_router
 from app.routers.suggestions import router as suggestions_router
 from app.routers.batch_imports import router as batch_imports_router
 from app.routers.documents import router as documents_router
+from app.routers.relationships import router as relationships_router
 from app.database import engine
 from app.routers.auth import router as auth_router
 from app.routers.workspaces import router as workspaces_router
@@ -47,7 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     with engine.connect() as connection:
         revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-        if revision != "0007_financial_direction":
+        if revision != "0008_document_relationships":
             raise RuntimeError("Run alembic upgrade head before starting DataBridge")
 
     yield
@@ -76,26 +77,26 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Enterprise security headers & rate limiting middleware
     app.add_middleware(SecurityMiddleware)
 
+    # Correlation ID logging middleware
     @app.middleware("http")
-    async def request_log(request, call_next):
-        """Emit safe, correlation-friendly request logs without request data."""
-        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
-        started = time.perf_counter()
-        try:
-            response = await call_next(request)
-        except Exception:
-            logging.getLogger("databridge.request").exception(
-                "request_failed request_id=%s method=%s path=%s",
-                request_id, request.method, request.url.path,
-            )
-            raise
-        response.headers["X-Request-ID"] = request_id
-        logging.getLogger("databridge.request").info(
-            "request request_id=%s method=%s path=%s status=%s duration_ms=%d",
-            request_id, request.method, request.url.path, response.status_code,
-            (time.perf_counter() - started) * 1000,
+    async def correlation_id_middleware(request, call_next):
+        correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4()))
+        start_time = time.perf_counter()
+
+        response = await call_next(request)
+
+        process_time = (time.perf_counter() - start_time) * 1000
+        response.headers["X-Correlation-ID"] = correlation_id
+        response.headers["X-Process-Time"] = f"{process_time:.2f}ms"
+
+        # Structured access logging format
+        client_host = request.client.host if request.client else "unknown"
+        logging.getLogger("databridge.access").info(
+            f"{client_host} - '{request.method} {request.url.path}' "
+            f"{response.status_code} [{correlation_id}] {process_time:.2f}ms"
         )
         return response
 
@@ -119,6 +120,7 @@ def create_app() -> FastAPI:
     app.include_router(suggestions_router)
     app.include_router(batch_imports_router)
     app.include_router(documents_router)
+    app.include_router(relationships_router)
 
     @app.get("/health", tags=["Health"])
     async def health_check() -> dict[str, str]:

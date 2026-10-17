@@ -2,12 +2,14 @@
 import { computed, ref, watch } from 'vue'
 import {
   AlertCircle,
+  ArrowLeft,
   Calendar,
   Edit2,
   ExternalLink,
   FileSpreadsheet,
   HelpCircle,
   Layers,
+  Link2,
   Loader2,
   Save,
   Tag,
@@ -16,8 +18,10 @@ import {
   X,
 } from 'lucide-vue-next'
 
+import ConnectedDocumentsPanel from '@/components/explorer/ConnectedDocumentsPanel.vue'
 import SourcePreviewModal from '@/components/explorer/SourcePreviewModal.vue'
 import type {
+  EntityType,
   InvoiceDetailResponse,
   InvoiceRecordUpdate,
 } from '@/types/api'
@@ -25,11 +29,16 @@ import type {
 const props = defineProps<{
   invoice: InvoiceDetailResponse
   isOpen: boolean
+  previousDocument?: { type: string; id: number; title: string; subtitle?: string } | null
 }>()
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'navigate-back'): void
   (e: 'save', payload: { invoiceId: number; form: InvoiceRecordUpdate }): void
+  (e: 'view-related', payload: { type: EntityType; id: number }): void
+  (e: 'count-changed', count: number): void
+  (e: 'relationship-mutated', payload: { action: 'linked' | 'unlinked'; partnerType: EntityType; partnerId: number }): void
 }>()
 
 // ── Edit Record State ───────────────────────────────────────────────────────
@@ -303,10 +312,24 @@ function handleKeydown(e: KeyboardEvent) {
             <span class="zen-meta-chip">
               {{ invoice.line_items.length }} line item{{ invoice.line_items.length !== 1 ? 's' : '' }}
             </span>
+            <span v-if="(invoice.connected_count ?? 0) > 0" class="zen-meta-chip zen-linked-chip" title="Connected documents">
+              <Link2 :size="12" />
+              {{ invoice.connected_count }} linked
+            </span>
           </div>
         </div>
 
         <div class="zen-header-actions">
+          <button
+            v-if="previousDocument"
+            type="button"
+            class="btn-nav-back"
+            :title="`Return to ${previousDocument.title}`"
+            @click="emit('navigate-back')"
+          >
+            <ArrowLeft :size="13" />
+            <span>Back to {{ previousDocument.subtitle || previousDocument.title }}</span>
+          </button>
           <button
             v-if="!isEditing"
             type="button"
@@ -598,6 +621,16 @@ function handleKeydown(e: KeyboardEvent) {
             <span class="prov-val">{{ formatDateTime(invoice.batch.imported_at) }}</span>
           </div>
         </div>
+
+        <!-- Connected Documents Panel -->
+        <ConnectedDocumentsPanel
+          entity-type="invoice"
+          :entity-id="invoice.id"
+          :entity-title="invoice.company_name + ' · ' + invoice.invoice_number"
+          @view-related="(p) => emit('view-related', p)"
+          @count-changed="(cnt) => { invoice.connected_count = cnt; emit('count-changed', cnt) }"
+          @relationship-mutated="(p) => emit('relationship-mutated', p)"
+        />
       </div>
     </div>
 
@@ -614,6 +647,26 @@ function handleKeydown(e: KeyboardEvent) {
 </template>
 
 <style scoped>
+.btn-nav-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-nav-back:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+  color: #e0f2fe;
+}
+
 .zen-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -622,7 +675,7 @@ function handleKeydown(e: KeyboardEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 1000;
   padding: 1.5rem;
   overflow-y: auto;
 }
@@ -633,7 +686,7 @@ function handleKeydown(e: KeyboardEvent) {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 100%;
-  max-width: 960px;
+  max-width: 1080px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -1138,5 +1191,15 @@ function handleKeydown(e: KeyboardEvent) {
   background: rgba(148, 163, 184, 0.1);
   color: var(--text-muted);
   border-color: var(--border-medium);
+}
+
+.zen-linked-chip {
+  background: var(--accent-soft, rgba(99, 102, 241, 0.08));
+  color: var(--accent-brand);
+  border-radius: var(--radius-xs, 4px);
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--accent-border, rgba(99, 102, 241, 0.25));
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 </style>

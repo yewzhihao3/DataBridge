@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
   ArrowUpDown,
@@ -12,6 +12,7 @@ import {
   Eye,
   FileText,
   Layers,
+  Link2,
   Receipt,
   RefreshCw,
   Search,
@@ -36,6 +37,7 @@ import type {
 } from '@/types/api'
 
 const router = useRouter()
+const route = useRoute()
 
 // ── Active Tab ──────────────────────────────────────────────────────────────
 const activeTab = ref<'documents' | 'invoices' | 'receipts' | 'line-items'>('documents')
@@ -135,6 +137,23 @@ const selectedReceipt = ref<ReceiptDetailResponse | null>(null)
 const isReceiptModalOpen = ref(false)
 const isReceiptEditModalOpen = ref(false)
 const isLoadingReceiptDetail = ref(false)
+
+export interface NavigationHistoryEntry {
+  type: 'invoice' | 'receipt'
+  id: number
+  title: string
+  subtitle?: string
+}
+
+const navigationHistory = ref<NavigationHistoryEntry[]>([])
+
+const currentPreviousDocument = computed<NavigationHistoryEntry | null>(() => {
+  if (navigationHistory.value.length === 0) return null
+  return navigationHistory.value[navigationHistory.value.length - 1]
+})
+
+const isNavigatingDocument = ref(false)
+const navigatingFeedbackText = ref('')
 
 // ── Debounce Timer ──────────────────────────────────────────────────────────
 let searchDebounceTimer: any = null
@@ -673,6 +692,162 @@ function inspectDocumentRow(doc: UnifiedDocumentListItem) {
   }
 }
 
+function closeInvoiceDetail() {
+  isInvoiceModalOpen.value = false
+  selectedInvoice.value = null
+  navigationHistory.value = []
+}
+
+function closeReceiptDetail() {
+  isReceiptModalOpen.value = false
+  selectedReceipt.value = null
+  navigationHistory.value = []
+}
+
+async function handleViewRelated(payload: { type: string; id: number }) {
+  if (payload.type === 'source_file') {
+    openSourcePreviewModal({
+      source_file_id: payload.id,
+      source_media_type: 'application/pdf',
+    })
+    return
+  }
+
+  if (payload.type !== 'invoice' && payload.type !== 'receipt') {
+    alert(`Unsupported document type: ${payload.type}`)
+    return
+  }
+
+  // Push currently open record onto history stack
+  if (selectedInvoice.value && isInvoiceModalOpen.value) {
+    navigationHistory.value.push({
+      type: 'invoice',
+      id: selectedInvoice.value.id,
+      title: selectedInvoice.value.company_name,
+      subtitle: selectedInvoice.value.invoice_number,
+    })
+  } else if (selectedReceipt.value && isReceiptModalOpen.value) {
+    navigationHistory.value.push({
+      type: 'receipt',
+      id: selectedReceipt.value.id,
+      title: selectedReceipt.value.merchant_name,
+      subtitle: selectedReceipt.value.receipt_number || `Receipt #${selectedReceipt.value.id}`,
+    })
+  }
+
+  // Close active modals during transition
+  isInvoiceModalOpen.value = false
+  isReceiptModalOpen.value = false
+  selectedInvoice.value = null
+  selectedReceipt.value = null
+
+  isNavigatingDocument.value = true
+  navigatingFeedbackText.value = `Loading ${payload.type} #${payload.id}…`
+
+  try {
+    if (payload.type === 'invoice') {
+      const detail = await api.getDataExplorerInvoice(payload.id)
+      selectedInvoice.value = detail
+      isInvoiceModalOpen.value = true
+    } else {
+      const detail = await api.getDataExplorerReceipt(payload.id)
+      selectedReceipt.value = detail
+      isReceiptModalOpen.value = true
+    }
+  } catch (err: any) {
+    alert(err?.message || `Failed to load connected ${payload.type} #${payload.id}.`)
+    // Attempt rollback to previous entry
+    if (navigationHistory.value.length > 0) {
+      const prev = navigationHistory.value.pop()!
+      if (prev.type === 'invoice') {
+        openInvoiceDetail(prev.id)
+      } else {
+        openReceiptDetail(prev.id)
+      }
+    }
+  } finally {
+    isNavigatingDocument.value = false
+    navigatingFeedbackText.value = ''
+  }
+}
+
+async function handleNavigateBack() {
+  if (navigationHistory.value.length === 0) return
+  const target = navigationHistory.value.pop()!
+
+  isInvoiceModalOpen.value = false
+  isReceiptModalOpen.value = false
+  selectedInvoice.value = null
+  selectedReceipt.value = null
+
+  isNavigatingDocument.value = true
+  navigatingFeedbackText.value = `Returning to ${target.title}…`
+
+  try {
+    if (target.type === 'invoice') {
+      const detail = await api.getDataExplorerInvoice(target.id)
+      selectedInvoice.value = detail
+      isInvoiceModalOpen.value = true
+    } else {
+      const detail = await api.getDataExplorerReceipt(target.id)
+      selectedReceipt.value = detail
+      isReceiptModalOpen.value = true
+    }
+  } catch (err: any) {
+    alert(err?.message || `Failed to return to previous ${target.type}.`)
+  } finally {
+    isNavigatingDocument.value = false
+    navigatingFeedbackText.value = ''
+  }
+}
+
+function handleInvoiceCountChanged(newCount: number) {
+  if (selectedInvoice.value) {
+    selectedInvoice.value.connected_count = newCount
+    const inv = invoices.value.find((i) => i.id === selectedInvoice.value?.id)
+    if (inv) inv.connected_count = newCount
+    const doc = documents.value.find((d) => d.document_type === 'invoice' && d.record_id === selectedInvoice.value?.id)
+    if (doc) doc.connected_count = newCount
+  }
+}
+
+function handleReceiptCountChanged(newCount: number) {
+  if (selectedReceipt.value) {
+    selectedReceipt.value.connected_count = newCount
+    const rec = receipts.value.find((r) => r.id === selectedReceipt.value?.id)
+    if (rec) rec.connected_count = newCount
+    const doc = documents.value.find((d) => d.document_type === 'receipt' && d.record_id === selectedReceipt.value?.id)
+    if (doc) doc.connected_count = newCount
+  }
+}
+
+function handleRelationshipMutated(payload: {
+  action: 'linked' | 'unlinked'
+  partnerType: string
+  partnerId: number
+}) {
+  const delta = payload.action === 'linked' ? 1 : -1
+  if (payload.partnerType === 'invoice') {
+    const inv = invoices.value.find((i) => i.id === payload.partnerId)
+    if (inv) {
+      inv.connected_count = Math.max(0, (inv.connected_count || 0) + delta)
+    }
+    const doc = documents.value.find((d) => d.document_type === 'invoice' && d.record_id === payload.partnerId)
+    if (doc) {
+      doc.connected_count = Math.max(0, (doc.connected_count || 0) + delta)
+    }
+  } else if (payload.partnerType === 'receipt') {
+    const rec = receipts.value.find((r) => r.id === payload.partnerId)
+    if (rec) {
+      rec.connected_count = Math.max(0, (rec.connected_count || 0) + delta)
+    }
+    const doc = documents.value.find((d) => d.document_type === 'receipt' && d.record_id === payload.partnerId)
+    if (doc) {
+      doc.connected_count = Math.max(0, (doc.connected_count || 0) + delta)
+    }
+  }
+}
+
 async function handleSaveInvoiceEdit(payload: {
   invoiceId: number
   form: InvoiceRecordUpdate
@@ -742,7 +917,27 @@ function navigateToExport(dataset: 'documents' | 'invoices' | 'receipts' | 'line
 
 onMounted(() => {
   fetchFilterOptions()
-  fetchDocuments()
+  const qTab = route.query.tab as string
+  const qRecordId = Number(route.query.recordId)
+  if (qTab && ['documents', 'invoices', 'receipts', 'line-items'].includes(qTab)) {
+    activeTab.value = qTab as any
+  }
+  if (activeTab.value === 'documents') {
+    fetchDocuments()
+  } else if (activeTab.value === 'invoices') {
+    fetchInvoices()
+  } else if (activeTab.value === 'receipts') {
+    fetchReceipts()
+  } else if (activeTab.value === 'line-items') {
+    fetchLineItems()
+  }
+  if (qRecordId && !isNaN(qRecordId)) {
+    if (qTab === 'receipts' || route.query.docType === 'receipt') {
+      openReceiptDetail(qRecordId)
+    } else if (qTab === 'invoices' || route.query.docType === 'invoice') {
+      openInvoiceDetail(qRecordId)
+    }
+  }
 })
 
 watch(activeTab, (tab) => {
@@ -1062,6 +1257,10 @@ watch(activeTab, (tab) => {
                   </td>
                   <td class="text-right" @click.stop>
                     <div class="action-buttons justify-end">
+                      <span v-if="(doc.connected_count ?? 0) > 0" class="connected-count-badge" title="Connected documents">
+                        <Link2 :size="11" />
+                        {{ doc.connected_count }}
+                      </span>
                       <button
                         type="button"
                         class="btn-row-action"
@@ -1358,6 +1557,10 @@ watch(activeTab, (tab) => {
                   <td class="text-xs text-slate-500 truncate max-w-xs">{{ inv.source_filename || '—' }}</td>
                   <td class="text-right" @click.stop>
                     <div class="action-buttons justify-end">
+                      <span v-if="(inv.connected_count ?? 0) > 0" class="connected-count-badge" title="Connected documents">
+                        <Link2 :size="11" />
+                        {{ inv.connected_count }}
+                      </span>
                       <button
                         type="button"
                         class="btn-row-action"
@@ -1658,6 +1861,10 @@ watch(activeTab, (tab) => {
                   </td>
                   <td class="text-right" @click.stop>
                     <div class="action-buttons justify-end">
+                      <span v-if="(rec.connected_count ?? 0) > 0" class="connected-count-badge" title="Connected documents">
+                        <Link2 :size="11" />
+                        {{ rec.connected_count }}
+                      </span>
                       <button
                         type="button"
                         class="btn-row-action"
@@ -1949,20 +2156,40 @@ watch(activeTab, (tab) => {
     <!-- ── Modals ────────────────────────────────────────────────── -->
     <InvoiceDetailModal
       v-if="selectedInvoice"
+      :key="`inv_${selectedInvoice.id}`"
       :invoice="selectedInvoice"
       :is-open="isInvoiceModalOpen"
-      @close="isInvoiceModalOpen = false; selectedInvoice = null"
+      :previous-document="currentPreviousDocument"
+      @navigate-back="handleNavigateBack"
+      @close="closeInvoiceDetail"
       @save="handleSaveInvoiceEdit"
+      @view-related="handleViewRelated"
+      @count-changed="handleInvoiceCountChanged"
+      @relationship-mutated="handleRelationshipMutated"
     />
 
     <ReceiptDetailModal
       v-if="selectedReceipt"
+      :key="`rec_${selectedReceipt.id}`"
       :receipt="selectedReceipt"
       :is-open="isReceiptModalOpen"
-      @close="isReceiptModalOpen = false; selectedReceipt = null"
+      :previous-document="currentPreviousDocument"
+      @navigate-back="handleNavigateBack"
+      @close="closeReceiptDetail"
       @save="handleSaveReceiptEdit"
       @edit="openReceiptEditor"
+      @view-related="handleViewRelated"
+      @count-changed="handleReceiptCountChanged"
+      @relationship-mutated="handleRelationshipMutated"
     />
+
+    <!-- Modal Navigation Transition Overlay -->
+    <div v-if="isNavigatingDocument" class="nav-loading-overlay" role="status" aria-live="polite">
+      <div class="nav-loading-card">
+        <Loader2 class="spin text-cyan-400" :size="22" />
+        <span class="text-sm font-medium text-slate-200">{{ navigatingFeedbackText || 'Loading connected document…' }}</span>
+      </div>
+    </div>
 
     <ReceiptEditModal
       v-if="selectedReceipt"
@@ -1986,6 +2213,28 @@ watch(activeTab, (tab) => {
 
 <style scoped>
 /* ── Page Layout ────────────────────────────────────────────── */
+.nav-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-loading-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-radius: 0.5rem;
+  background: var(--bg-surface, #1e293b);
+  border: 1px solid var(--border-default, #334155);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+}
+
 .zen-explorer-page {
   min-height: 100vh;
   background: var(--bg-app);
@@ -2519,4 +2768,19 @@ watch(activeTab, (tab) => {
 .zen-data-table td.font-medium { color: var(--text-primary); }
 .zen-data-table td.text-slate-600 { color: var(--text-muted); }
 .zen-data-table td.text-slate-500 { color: var(--text-muted); }
+
+/* ── Connected-document count badge ─────────────────────────── */
+.connected-count-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--accent-soft, rgba(99, 102, 241, 0.08));
+  color: var(--accent-brand);
+  border: 1px solid var(--accent-border, rgba(99, 102, 241, 0.25));
+  white-space: nowrap;
+}
 </style>

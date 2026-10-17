@@ -9,7 +9,21 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session, with_loader_criteria
 from app.database import get_db
 from app.security import Identity, current_identity, audit
-from app.models import Template, TemplateFieldMapping, SourceFile, ImportBatch, InvoiceRecord, InvoiceLineItem, ValidationErrorRecord, BatchImportSession, BatchImportFile, DocumentExtraction, ReceiptRecord, ReceiptLineItem
+from app.models import (
+    Template,
+    TemplateFieldMapping,
+    SourceFile,
+    ImportBatch,
+    InvoiceRecord,
+    InvoiceLineItem,
+    ValidationErrorRecord,
+    BatchImportSession,
+    BatchImportFile,
+    DocumentExtraction,
+    ReceiptRecord,
+    ReceiptLineItem,
+    DocumentRelationship,
+)
 
 
 def get_tenant_db(identity: Identity = Depends(current_identity), db: Session = Depends(get_db)):
@@ -42,6 +56,7 @@ def scope_queries(state):
         (InvoiceLineItem, InvoiceLineItem.invoice_id.in_(select(invoices.c.id).select_from(invoices.join(batches, invoices.c.batch_id == batches.c.id)).where(batches.c.organization_id == org))),
         (ReceiptRecord, ReceiptRecord.batch_id.in_(select(batches.c.id).where(batches.c.organization_id == org))),
         (ReceiptLineItem, ReceiptLineItem.receipt_id.in_(select(receipts.c.id).select_from(receipts.join(batches, receipts.c.batch_id == batches.c.id)).where(batches.c.organization_id == org))),
+        (DocumentRelationship, DocumentRelationship.organization_id == org),
     ]
     for model, condition in criteria:
         state.statement = state.statement.options(with_loader_criteria(model, condition, include_aliases=True))
@@ -53,7 +68,7 @@ def scope_writes(db, context, instances):
     if org is None:
         return
     for obj in list(db.new) + list(db.dirty) + list(db.deleted):
-        if isinstance(obj, (Template, SourceFile, ImportBatch, BatchImportSession)):
+        if isinstance(obj, (Template, SourceFile, ImportBatch, BatchImportSession, DocumentRelationship)):
             if obj in db.new and obj.organization_id is None:
                 obj.organization_id = org
             if obj.organization_id != org:

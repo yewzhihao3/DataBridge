@@ -22,10 +22,10 @@ from app.tenancy import get_tenant_db as get_db
 router = APIRouter(prefix="/api/v1/documents", tags=["Documents"])
 logger = logging.getLogger(__name__)
 
-def _response(record: DocumentExtraction) -> DocumentExtractionResponse:
+def _response(record: DocumentExtraction, filename: str | None = None) -> DocumentExtractionResponse:
     return DocumentExtractionResponse(document_id=record.source_file_id, status=record.status, document_type=record.document_type,
         provider=record.provider, ocr_status=record.ocr_status, ocr_message=record.ocr_message, processing_method=record.processing_method, fields=record.fields or {}, line_items=record.line_items or [],
-        warnings=record.warnings or [], error_message=record.error_message, processed_at=record.processed_at)
+        warnings=record.warnings or [], error_message=record.error_message, original_filename=filename, processed_at=record.processed_at)
 
 def _process(source: SourceFile, db: Session, mode: str | None = None, provider: Any = None) -> DocumentExtraction:
     res = process_document_pipeline(storage.local_path(source.stored_filename), source.media_type, mode=mode, provider=provider)
@@ -98,7 +98,8 @@ async def upload_document(file: UploadFile = File(...), mode: str | None = None,
 def get_document(document_id: int, db: Session = Depends(get_db)):
     item = db.query(DocumentExtraction).filter_by(source_file_id=document_id).first()
     if not item: raise HTTPException(404, "Document not found.")
-    return _response(item)
+    source = db.query(SourceFile).filter_by(id=document_id).first()
+    return _response(item, filename=source.original_name if source else None)
 
 @router.get("/{document_id}/preview")
 def preview(document_id: int, db: Session = Depends(get_db)):
@@ -129,7 +130,7 @@ def reprocess(document_id: int, mode: str | None = None, identity: Identity = De
     audit(db, identity.membership.organization_id, identity.user.id, "DOCUMENT_REPROCESSED", "source_files", source.id)
     db.commit()
     db.refresh(record)
-    return _response(record)
+    return _response(record, filename=source.original_name)
 
 @router.post("/{document_id}/parse", response_model=DocumentExtractionResponse)
 def parse_as(document_id: int, payload: DocumentParseRequest, db: Session = Depends(get_db)):
@@ -139,21 +140,110 @@ def parse_as(document_id: int, payload: DocumentParseRequest, db: Session = Depe
     if record.status == "imported":
         raise HTTPException(400, "Cannot re-parse an already imported document.")
     document_type, _confidence, fields, lines, warnings = parse_document(record.pages or [], payload.document_type)
+    if record.fields:
+        for k, v in record.fields.items():
+            if k not in fields or not fields[k].get("value"):
+                fields[k] = v
+        if payload.document_type == "invoice":
+            if not fields.get("company_name", {}).get("value") and fields.get("merchant_name", {}).get("value"):
+                fields["company_name"] = fields["merchant_name"]
+            if not fields.get("invoice_number", {}).get("value") and fields.get("receipt_number", {}).get("value"):
+                fields["invoice_number"] = fields["receipt_number"]
+            if not fields.get("invoice_date", {}).get("value") and fields.get("transaction_date", {}).get("value"):
+                fields["invoice_date"] = fields["transaction_date"]
+        elif payload.document_type == "receipt":
+            if not fields.get("merchant_name", {}).get("value") and fields.get("company_name", {}).get("value"):
+                fields["merchant_name"] = fields["company_name"]
+            if not fields.get("receipt_number", {}).get("value") and fields.get("invoice_number", {}).get("value"):
+                fields["receipt_number"] = fields["invoice_number"]
+            if not fields.get("transaction_date", {}).get("value") and fields.get("invoice_date", {}).get("value"):
+                fields["transaction_date"] = fields["invoice_date"]
+        if not lines and record.line_items:
+            lines = record.line_items
     record.document_type, record.fields, record.line_items, record.warnings = document_type, fields, lines, warnings
     db.commit()
     db.refresh(record)
-    return _response(record)
+    source = db.query(SourceFile).filter_by(id=document_id).first()
+    return _response(record, filename=source.original_name if source else None)
 
 @router.post("/{document_id}/confirm")
 def confirm(document_id: int, payload: DocumentConfirmRequest, identity: Identity = Depends(current_identity), db: Session = Depends(get_db)):
-    source = db.query(SourceFile).filter_by(id=document_id).first(); extraction = db.query(DocumentExtraction).filter_by(source_file_id=document_id).first()
+    source = db.query(SourceFile).filter_by(id=document_id).first()
+    extraction = db.query(DocumentExtraction).filter_by(source_file_id=document_id).first()
     if not source or not extraction: raise HTTPException(404, "Document not found.")
+
+    can_acknowledge = bool(payload.acknowledge_duplicate or payload.acknowledge_warnings)
+    duplicate_found = False
+    duplicate_reason = ""
+    conflicting_record_id = None
+
+    # Record-level duplicate check
     if payload.document_type == "receipt":
-        duplicate = db.query(ReceiptRecord).join(ImportBatch).filter(ImportBatch.is_deleted.is_(False), ReceiptRecord.merchant_name == payload.merchant_name, ReceiptRecord.receipt_number == payload.receipt_number, ReceiptRecord.total_amount == payload.total_amount).first()
-        if duplicate: raise HTTPException(409, "Possible duplicate receipt found; document was not imported.")
-    else:
-        duplicate = db.query(InvoiceRecord).join(ImportBatch).filter(ImportBatch.is_deleted.is_(False), InvoiceRecord.company_name == payload.company_name, InvoiceRecord.invoice_number == payload.invoice_number).first()
-        if duplicate: raise HTTPException(409, "Possible duplicate invoice found; document was not imported.")
+        merchant_clean = (payload.merchant_name or "").strip()
+        receipt_num_clean = (payload.receipt_number or "").strip()
+        tx_date = datetime.fromisoformat(payload.transaction_date).date() if payload.transaction_date else None
+
+        base_rec_query = (
+            db.query(ReceiptRecord)
+            .join(ImportBatch)
+            .filter(
+                ImportBatch.is_deleted.is_(False),
+                ReceiptRecord.merchant_name.ilike(merchant_clean),
+            )
+        )
+
+        if receipt_num_clean:
+            # Printed receipt number is available: match on merchant + receipt_number
+            rec_dup = base_rec_query.filter(ReceiptRecord.receipt_number == receipt_num_clean).first()
+            if rec_dup:
+                duplicate_found = True
+                conflicting_record_id = rec_dup.id
+                duplicate_reason = f"Receipt number '{receipt_num_clean}' from '{rec_dup.merchant_name}' already exists (ID #{rec_dup.id})."
+        else:
+            # Missing/empty receipt_number:
+            # DO NOT reject based solely on merchant and amount!
+            # Only match if merchant, amount, AND transaction_date match (or both dates are missing)
+            if payload.total_amount is not None:
+                date_filter = (ReceiptRecord.transaction_date == tx_date) if tx_date else ReceiptRecord.transaction_date.is_(None)
+                rec_dup = base_rec_query.filter(
+                    ReceiptRecord.total_amount == payload.total_amount,
+                    date_filter,
+                ).first()
+                if rec_dup:
+                    duplicate_found = True
+                    conflicting_record_id = rec_dup.id
+                    date_info = f" on {tx_date}" if tx_date else ""
+                    duplicate_reason = f"Matching transaction from '{rec_dup.merchant_name}' for {payload.total_amount}{date_info} already exists (ID #{rec_dup.id})."
+
+    elif not duplicate_found and payload.document_type == "invoice":
+        comp_clean = (payload.company_name or "").strip()
+        inv_clean = (payload.invoice_number or "").strip()
+        inv_dup = (
+            db.query(InvoiceRecord)
+            .join(ImportBatch)
+            .filter(
+                ImportBatch.is_deleted.is_(False),
+                InvoiceRecord.company_name.ilike(comp_clean),
+                InvoiceRecord.invoice_number == inv_clean,
+            )
+            .first()
+        )
+        if inv_dup:
+            duplicate_found = True
+            conflicting_record_id = inv_dup.id
+            duplicate_reason = f"Invoice number '{inv_clean}' from '{inv_dup.company_name}' already exists (ID #{inv_dup.id})."
+
+    if duplicate_found and not can_acknowledge:
+        conflict_headers = {}
+        if conflicting_record_id:
+            conflict_headers["X-Duplicate-Record-Id"] = str(conflicting_record_id)
+            conflict_headers["X-Duplicate-Document-Type"] = payload.document_type
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Possible duplicate {payload.document_type} found. {duplicate_reason}",
+            headers=conflict_headers or None,
+        )
+
     template_name = "Document receipt" if payload.document_type == "receipt" else "Document invoice"
     template = db.query(Template).filter_by(name=template_name, file_type="document").first()
     if not template:
@@ -161,7 +251,14 @@ def confirm(document_id: int, payload: DocumentConfirmRequest, identity: Identit
         db.add(template); db.flush()
     batch = ImportBatch(organization_id=identity.membership.organization_id, source_file_id=source.id, template_id=template.id, status="imported", record_count=1, warning_count=len(extraction.warnings or []))
     db.add(batch); db.flush()
-    raw_data = json.dumps({"document_extraction": extraction.fields, "corrected": payload.model_dump(mode="json")}, default=str)
+
+    raw_payload = payload.model_dump(mode="json")
+    if duplicate_found and can_acknowledge:
+        raw_payload["duplicate_acknowledged"] = True
+        raw_payload["duplicate_warning_reason"] = duplicate_reason
+        raw_payload["conflicting_record_id"] = conflicting_record_id
+
+    raw_data = json.dumps({"document_extraction": extraction.fields, "corrected": raw_payload}, default=str)
     if payload.document_type == "receipt":
         receipt = ReceiptRecord(
             batch_id=batch.id,

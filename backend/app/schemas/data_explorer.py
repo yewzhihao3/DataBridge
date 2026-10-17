@@ -28,6 +28,7 @@ class InvoiceListItem(BaseModel):
     source_file_id: int | None = None
     source_filename: str | None = None
     source_media_type: str | None = None
+    connected_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -61,6 +62,7 @@ class InvoiceDetailResponse(BaseModel):
     batch: InvoiceDetailBatchInfo | None = None
     line_items: list[InvoiceLineItemRead] = Field(default_factory=list)
     raw_data: dict[str, Any] | None = None
+    connected_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -83,6 +85,7 @@ class ReceiptListItem(BaseModel):
     source_file_id: int | None = None
     source_filename: str | None = None
     source_media_type: str | None = None
+    connected_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -109,6 +112,7 @@ class ReceiptDetailResponse(BaseModel):
     batch: InvoiceDetailBatchInfo | None = None
     line_items: list[ReceiptLineItemRead] = Field(default_factory=list)
     raw_data: dict[str, Any] | None = None
+    connected_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -131,6 +135,7 @@ class UnifiedDocumentListItem(BaseModel):
     line_item_count: int = 0
     status: str = "imported"
     created_at: datetime
+    connected_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
