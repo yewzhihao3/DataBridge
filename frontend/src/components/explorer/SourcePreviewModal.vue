@@ -217,9 +217,10 @@ function onBackdropClick(e: MouseEvent) {
 </script>
 
 <template>
-  <div
-    v-if="isOpen"
-    class="zen-modal-overlay"
+  <Teleport to="body">
+    <div
+      v-if="isOpen"
+      class="zen-modal-overlay"
     tabindex="-1"
     role="dialog"
     aria-modal="true"
@@ -466,6 +467,7 @@ function onBackdropClick(e: MouseEvent) {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -477,7 +479,7 @@ function onBackdropClick(e: MouseEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 60;
+  z-index: 2500;
   padding: 1.25rem;
 }
 

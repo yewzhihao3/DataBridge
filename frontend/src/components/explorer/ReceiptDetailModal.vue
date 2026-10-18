@@ -170,9 +170,10 @@ function onBackdropClick(e: MouseEvent) {
 </script>
 
 <template>
-  <div
-    v-if="isOpen && receipt"
-    class="zen-modal-overlay"
+  <Teleport to="body">
+    <div
+      v-if="isOpen && receipt"
+      class="zen-modal-overlay"
     tabindex="-1"
     role="dialog"
     aria-modal="true"
@@ -485,6 +486,7 @@ function onBackdropClick(e: MouseEvent) {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

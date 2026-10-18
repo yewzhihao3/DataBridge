@@ -196,8 +196,9 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 </script>
 
 <template>
-  <div v-if="isOpen" class="zen-modal-overlay" @click.self="emit('close')">
-    <div class="zen-modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-link-title">
+  <Teleport to="body">
+    <div v-if="isOpen" class="zen-modal-overlay" @click.self="emit('close')">
+      <div class="zen-modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-link-title">
       <!-- Header -->
       <header class="zen-modal-header">
         <div class="header-content">
@@ -432,6 +433,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
       </footer>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -439,7 +441,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background-color: rgba(5, 7, 10, 0.78);
+  background-color: var(--overlay);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -451,13 +453,13 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   width: 100%;
   max-width: 680px;
   max-height: 90vh;
-  background: #0f141c;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 14px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
-  color: #e2e8f0;
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
 }
 
 .zen-modal-header {
@@ -465,7 +467,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   align-items: center;
   justify-content: space-between;
   padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .header-content {
@@ -478,12 +480,12 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  background: rgba(59, 130, 246, 0.12);
-  color: #60a5fa;
+  background: var(--accent-soft);
+  color: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  border: 1px solid var(--accent-border);
 }
 
 .zen-modal-title {
@@ -491,24 +493,24 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   font-size: 1.125rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 .zen-modal-sub {
   margin: 0.2rem 0 0;
   font-size: 0.8125rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 .text-accent {
-  color: #60a5fa;
+  color: var(--accent);
   font-weight: 500;
 }
 
 .btn-close-zen {
   background: transparent;
   border: none;
-  color: #64748b;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0.5rem;
   border-radius: 8px;
@@ -516,8 +518,8 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-close-zen:hover {
-  color: #f1f5f9;
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  background: var(--bg-subtle);
 }
 
 .zen-modal-body {
@@ -545,30 +547,29 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   left: 0.75rem;
   top: 50%;
   transform: translateY(-50%);
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .zen-search-input {
   width: 100%;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   padding: 0.5rem 0.75rem 0.5rem 2.25rem;
   font-size: 0.8125rem;
-  color: #f8fafc;
+  color: var(--text-primary);
   outline: none;
   transition: border-color 0.15s ease;
 }
 
 .zen-search-input:focus {
-  border-color: #3b82f6;
-  background: rgba(15, 23, 42, 0.9);
+  border-color: var(--accent);
 }
 
 .type-filter-group {
   display: inline-flex;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 2px;
 }
@@ -576,7 +577,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 .btn-type-filter {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--text-secondary);
   padding: 0.35rem 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
@@ -586,16 +587,17 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-type-filter.active {
-  background: rgba(59, 130, 246, 0.2);
-  color: #93c5fd;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .candidates-container {
   max-height: 220px;
   overflow-y: auto;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--bg-subtle);
 }
 
 .zen-loading-box,
@@ -603,7 +605,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   padding: 2rem 1rem;
   text-align: center;
   font-size: 0.8125rem;
-  color: #64748b;
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -620,10 +622,11 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   align-items: center;
   justify-content: space-between;
   padding: 0.65rem 0.875rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   transition: background-color 0.15s ease;
   font-size: 0.8125rem;
+  color: var(--text-primary);
 }
 
 .candidate-row:last-child {
@@ -631,12 +634,12 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .candidate-row:hover:not(.disabled) {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-card-hover);
 }
 
 .candidate-row.selected {
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(59, 130, 246, 0.25);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
 }
 
 .candidate-row.disabled {
@@ -664,25 +667,25 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .type-badge.invoice {
-  background: rgba(59, 130, 246, 0.15);
-  color: #93c5fd;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: var(--status-info-bg, rgba(56, 189, 248, 0.15));
+  color: var(--status-info, #38bdf8);
+  border: 1px solid var(--status-info-border, rgba(56, 189, 248, 0.3));
 }
 
 .type-badge.receipt {
-  background: rgba(16, 185, 129, 0.15);
-  color: #6ee7b7;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: var(--status-success-bg, rgba(52, 211, 153, 0.15));
+  color: var(--status-success, #34d399);
+  border: 1px solid var(--status-success-border, rgba(52, 211, 153, 0.3));
 }
 
 .doc-num {
   font-family: monospace;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .counterparty {
-  color: #94a3b8;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -697,13 +700,13 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .doc-date {
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .doc-amount {
   font-family: monospace;
   font-weight: 500;
-  color: #e2e8f0;
+  color: var(--text-primary);
 }
 
 .status-pill {
@@ -714,34 +717,36 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .status-pill.self {
-  background: rgba(148, 163, 184, 0.12);
-  color: #94a3b8;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
 }
 
 .status-pill.linked {
-  background: rgba(234, 179, 8, 0.12);
-  color: #facc15;
+  background: var(--status-warning-bg, rgba(251, 191, 36, 0.12));
+  color: var(--status-warning, #fbbf24);
+  border: 1px solid var(--status-warning-border, rgba(251, 191, 36, 0.3));
 }
 
 .radio-indicator {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--border-medium);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #3b82f6;
+  color: var(--accent);
 }
 
 .candidate-row.selected .radio-indicator {
-  border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.2);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .relationship-config-box {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   padding: 1rem;
   display: flex;
@@ -753,7 +758,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   margin: 0;
   font-size: 0.8125rem;
   font-weight: 600;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .rel-type-options {
@@ -767,20 +772,20 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   align-items: flex-start;
   gap: 0.65rem;
   padding: 0.75rem;
-  background: rgba(15, 23, 42, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .rel-type-card:hover {
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--border-strong);
 }
 
 .rel-type-card.active {
-  background: rgba(59, 130, 246, 0.08);
-  border-color: #3b82f6;
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .card-radio {
@@ -788,21 +793,21 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--border-medium);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .rel-type-card.active .card-radio {
-  border-color: #3b82f6;
+  border-color: var(--accent);
 }
 
 .radio-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: var(--accent);
   opacity: 0;
 }
 
@@ -819,18 +824,18 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 .card-title {
   font-size: 0.8125rem;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .card-desc {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
   line-height: 1.35;
 }
 
 .supports-direction-selector {
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   padding: 0.75rem;
   display: flex;
@@ -841,7 +846,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 .dir-title {
   font-size: 0.75rem;
   font-weight: 500;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .dir-options {
@@ -855,7 +860,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   align-items: center;
   gap: 0.5rem;
   font-size: 0.75rem;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
@@ -869,9 +874,9 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .zen-alert-error {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
+  background: var(--status-error-bg, rgba(239, 68, 68, 0.12));
+  border: 1px solid var(--status-error-border, rgba(239, 68, 68, 0.3));
+  color: var(--status-error, #fb7185);
 }
 
 .zen-modal-footer {
@@ -880,13 +885,14 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
 }
 
 .btn-zen-secondary {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #e2e8f0;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
   padding: 0.5rem 1rem;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -896,13 +902,14 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-zen-secondary:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
 .btn-zen-primary {
-  background: #2563eb;
-  border: 1px solid #3b82f6;
-  color: #ffffff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--on-accent);
   padding: 0.5rem 1.125rem;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -915,7 +922,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-zen-primary:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .btn-zen-primary:disabled,

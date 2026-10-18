@@ -274,12 +274,13 @@ function handleKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div
-    v-if="isOpen"
-    class="zen-modal-backdrop"
-    @click.self="emit('close')"
-    @keydown="handleKeydown"
-  >
+  <Teleport to="body">
+    <div
+      v-if="isOpen"
+      class="zen-modal-backdrop"
+      @click.self="emit('close')"
+      @keydown="handleKeydown"
+    >
     <div
       class="zen-modal"
       role="dialog"
@@ -644,6 +645,7 @@ function handleKeydown(e: KeyboardEvent) {
       @close="isSourcePreviewOpen = false"
     />
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

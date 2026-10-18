@@ -555,49 +555,51 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
       @linked="handleLinkCreated"
     />
 
-    <!-- ── UNLINK CONFIRMATION DIALOG ─────────────────────────────────────── -->
-    <div v-if="unlinkTarget" class="zen-dialog-backdrop" @click.self="cancelUnlink">
-      <div class="zen-confirm-card" role="alertdialog">
-        <div class="confirm-icon-wrap">
-          <Link2Off :size="20" />
-        </div>
-        <h3 class="confirm-title">Remove Document Relationship?</h3>
-        <p class="confirm-body">
-          Are you sure you want to unlink
-          <strong>
-            {{ unlinkTarget.related_entity.document_number || unlinkTarget.related_entity.filename || `${unlinkTarget.related_entity.entity_type} #${unlinkTarget.related_entity.entity_id}` }}
-          </strong>?
-        </p>
-        <p class="confirm-note">
-          Only the relationship link will be removed. Both underlying business documents and source files remain completely safe and untouched.
-        </p>
+    <!-- ── UNLINK CONFIRMATION DIALOG (teleported to body to avoid modal stacking) -->
+    <Teleport to="body">
+      <div v-if="unlinkTarget" class="zen-dialog-backdrop" @click.self="cancelUnlink">
+        <div class="zen-confirm-card" role="alertdialog">
+          <div class="confirm-icon-wrap">
+            <Link2Off :size="20" />
+          </div>
+          <h3 class="confirm-title">Remove Document Relationship?</h3>
+          <p class="confirm-body">
+            Are you sure you want to unlink
+            <strong>
+              {{ unlinkTarget.related_entity.document_number || unlinkTarget.related_entity.filename || `${unlinkTarget.related_entity.entity_type} #${unlinkTarget.related_entity.entity_id}` }}
+            </strong>?
+          </p>
+          <p class="confirm-note">
+            Only the relationship link will be removed. Both underlying business documents and source files remain completely safe and untouched.
+          </p>
 
-        <div v-if="unlinkError" class="alert-box error mt-2">
-          <AlertCircle :size="14" />
-          <span>{{ unlinkError }}</span>
-        </div>
+          <div v-if="unlinkError" class="alert-box error mt-2">
+            <AlertCircle :size="14" />
+            <span>{{ unlinkError }}</span>
+          </div>
 
-        <div class="confirm-actions">
-          <button
-            type="button"
-            class="btn-dialog-secondary"
-            :disabled="isUnlinking"
-            @click="cancelUnlink"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="btn-dialog-danger"
-            :disabled="isUnlinking"
-            @click="confirmUnlink"
-          >
-            <Loader2 v-if="isUnlinking" :size="13" class="spinner" />
-            <span>{{ isUnlinking ? 'Unlinking...' : 'Confirm Unlink' }}</span>
-          </button>
+          <div class="confirm-actions">
+            <button
+              type="button"
+              class="btn-dialog-secondary"
+              :disabled="isUnlinking"
+              @click="cancelUnlink"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn-dialog-danger"
+              :disabled="isUnlinking"
+              @click="confirmUnlink"
+            >
+              <Loader2 v-if="isUnlinking" :size="13" class="spinner" />
+              <span>{{ isUnlinking ? 'Unlinking...' : 'Confirm Unlink' }}</span>
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -613,21 +615,21 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   align-items: center;
   gap: 0.5rem;
   padding: 0.65rem 0.875rem;
-  border-radius: 8px;
+  border-radius: var(--radius-xs, 6px);
   font-size: 0.8125rem;
   animation: fadeIn 0.15s ease;
 }
 
 .panel-feedback-banner.success {
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  color: #6ee7b7;
+  background: var(--status-success-bg, rgba(16, 185, 129, 0.12));
+  border: 1px solid var(--status-success-border, rgba(16, 185, 129, 0.25));
+  color: var(--status-success, #34d399);
 }
 
 .panel-feedback-banner.error {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  color: #fca5a5;
+  background: var(--status-error-bg, rgba(239, 68, 68, 0.12));
+  border: 1px solid var(--status-error-border, rgba(239, 68, 68, 0.25));
+  color: var(--status-error, #fb7185);
 }
 
 .btn-close-feedback {
@@ -649,14 +651,14 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 0.75rem;
 }
 
 .tabs-segmented {
   display: inline-flex;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 2px;
 }
@@ -667,7 +669,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   gap: 0.45rem;
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--text-secondary);
   padding: 0.4rem 0.85rem;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -677,32 +679,35 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .tab-btn:hover {
-  color: #cbd5e1;
+  color: var(--text-primary);
 }
 
 .tab-btn.active {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f8fafc;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
 }
 
 .count-chip {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-elevated);
   padding: 0.1rem 0.4rem;
   border-radius: 9999px;
   font-size: 0.6875rem;
   font-weight: 600;
-  color: #cbd5e1;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
 }
 
 .count-chip.highlight {
-  background: rgba(59, 130, 246, 0.25);
-  color: #93c5fd;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
 }
 
 .btn-link-action {
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  color: #93c5fd;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
   padding: 0.4rem 0.85rem;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -715,8 +720,8 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-link-action:hover {
-  background: rgba(59, 130, 246, 0.25);
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .tab-content {
@@ -728,7 +733,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 .loading-state {
   padding: 2.5rem 1rem;
   text-align: center;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 0.8125rem;
   display: flex;
   align-items: center;
@@ -739,8 +744,8 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 .empty-connected-box {
   padding: 3rem 1.5rem;
   text-align: center;
-  background: rgba(0, 0, 0, 0.15);
-  border: 1px dashed rgba(255, 255, 255, 0.08);
+  background: var(--bg-subtle);
+  border: 1px dashed var(--border-default);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
@@ -752,8 +757,8 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: rgba(59, 130, 246, 0.1);
-  color: #60a5fa;
+  background: var(--accent-soft);
+  color: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -761,30 +766,30 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .empty-icon-circle.green {
-  background: rgba(16, 185, 129, 0.1);
-  color: #34d399;
+  background: var(--status-success-bg, rgba(16, 185, 129, 0.12));
+  color: var(--status-success, #34d399);
 }
 
 .empty-title {
   margin: 0;
   font-size: 0.9375rem;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-primary);
 }
 
 .empty-sub {
   margin: 0;
   font-size: 0.8125rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
   max-width: 420px;
   line-height: 1.4;
 }
 
 .btn-empty-cta {
   margin-top: 0.5rem;
-  background: #2563eb;
-  border: 1px solid #3b82f6;
-  color: #ffffff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--on-accent);
   padding: 0.45rem 1rem;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -797,7 +802,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-empty-cta:hover {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .relationships-grid {
@@ -811,14 +816,15 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   align-items: center;
   justify-content: space-between;
   padding: 0.875rem 1rem;
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
+  box-shadow: var(--shadow-sm);
   transition: border-color 0.15s ease;
 }
 
 .relationship-card:hover {
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: var(--border-medium);
 }
 
 .card-main {
@@ -847,36 +853,37 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .doc-type-badge.invoice {
-  background: rgba(59, 130, 246, 0.15);
-  color: #93c5fd;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: var(--status-info-bg, rgba(56, 189, 248, 0.15));
+  color: var(--status-info, #38bdf8);
+  border: 1px solid var(--status-info-border, rgba(56, 189, 248, 0.3));
 }
 
 .doc-type-badge.receipt {
-  background: rgba(16, 185, 129, 0.15);
-  color: #6ee7b7;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: var(--status-success-bg, rgba(52, 211, 153, 0.15));
+  color: var(--status-success, #34d399);
+  border: 1px solid var(--status-success-border, rgba(52, 211, 153, 0.3));
 }
 
 .doc-type-badge.source_file {
-  background: rgba(168, 85, 247, 0.15);
-  color: #d8b4fe;
-  border: 1px solid rgba(168, 85, 247, 0.3);
+  background: color-mix(in srgb, #a855f7 15%, transparent);
+  color: #c084fc;
+  border: 1px solid color-mix(in srgb, #a855f7 30%, transparent);
 }
 
 .rel-semantic-badge {
   font-size: 0.6875rem;
   padding: 0.15rem 0.5rem;
   border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #cbd5e1;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
   font-weight: 500;
 }
 
 .rel-semantic-badge.supports {
-  background: rgba(14, 165, 233, 0.15);
-  color: #7dd3fc;
-  border: 1px solid rgba(14, 165, 233, 0.3);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
 }
 
 .card-identity-row {
@@ -888,12 +895,12 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 .doc-identifier {
   font-family: monospace;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--text-primary);
   font-size: 0.875rem;
 }
 
 .doc-counterparty {
-  color: #94a3b8;
+  color: var(--text-secondary);
   font-size: 0.8125rem;
 }
 
@@ -902,16 +909,16 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   align-items: center;
   gap: 0.75rem;
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .meta-item strong {
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .meta-item.amount {
   font-family: monospace;
-  color: #f1f5f9;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -924,19 +931,19 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .direction-badge.sales {
-  background: rgba(59, 130, 246, 0.15);
-  color: #93c5fd;
+  background: var(--status-info-bg, rgba(56, 189, 248, 0.15));
+  color: var(--status-info, #38bdf8);
 }
 
 .direction-badge.purchase,
 .direction-badge.expense {
-  background: rgba(244, 63, 94, 0.15);
-  color: #fda4af;
+  background: var(--status-error-bg, rgba(251, 113, 133, 0.15));
+  color: var(--status-error, #fb7185);
 }
 
 .direction-badge.income {
-  background: rgba(16, 185, 129, 0.15);
-  color: #6ee7b7;
+  background: var(--status-success-bg, rgba(52, 211, 153, 0.15));
+  color: var(--status-success, #34d399);
 }
 
 .card-actions {
@@ -946,9 +953,9 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-card-action {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #cbd5e1;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
   padding: 0.35rem 0.65rem;
   font-size: 0.75rem;
   font-weight: 500;
@@ -961,14 +968,15 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-card-action:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  background: var(--bg-elevated);
+  border-color: var(--border-medium);
+  color: var(--text-primary);
 }
 
 .btn-card-action.unlink:hover {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
+  background: var(--status-error-bg, rgba(239, 68, 68, 0.15));
+  border-color: var(--status-error-border, rgba(239, 68, 68, 0.3));
+  color: var(--status-error, #fb7185);
 }
 
 .suggestions-list {
@@ -978,18 +986,19 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .suggestion-card {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   padding: 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+  box-shadow: var(--shadow-sm);
   transition: border-color 0.15s ease;
 }
 
 .suggestion-card:hover {
-  border-color: rgba(59, 130, 246, 0.3);
+  border-color: var(--accent-border);
 }
 
 .sug-header {
@@ -1018,27 +1027,27 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .category-badge.exact_file_duplicate {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fcd34d;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: var(--status-warning-bg, rgba(251, 191, 36, 0.15));
+  color: var(--status-warning, #fbbf24);
+  border: 1px solid var(--status-warning-border, rgba(251, 191, 36, 0.3));
 }
 
 .category-badge.possible_duplicate {
-  background: rgba(239, 68, 68, 0.15);
-  color: #fca5a5;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--status-error-bg, rgba(251, 113, 133, 0.15));
+  color: var(--status-error, #fb7185);
+  border: 1px solid var(--status-error-border, rgba(251, 113, 133, 0.3));
 }
 
 .category-badge.possible_related {
-  background: rgba(59, 130, 246, 0.15);
-  color: #93c5fd;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
 }
 
 .candidate-num {
   font-family: monospace;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--text-primary);
   font-size: 0.8125rem;
 }
 
@@ -1052,11 +1061,11 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 .sug-amount {
   font-family: monospace;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 .sug-date {
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .sug-counterparty-row {
@@ -1067,16 +1076,17 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .sug-counterparty-row .label {
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .sug-counterparty-row .val {
-  color: #cbd5e1;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .evidence-box {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   padding: 0.6rem 0.75rem;
   display: flex;
@@ -1089,7 +1099,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   text-transform: uppercase;
   letter-spacing: 0.03em;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .evidence-list {
@@ -1106,11 +1116,11 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   align-items: center;
   gap: 0.45rem;
   font-size: 0.75rem;
-  color: #cbd5e1;
+  color: var(--text-secondary);
 }
 
 .ev-check {
-  color: #10b981;
+  color: var(--status-success, #34d399);
   flex-shrink: 0;
 }
 
@@ -1119,7 +1129,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   align-items: center;
   justify-content: space-between;
   padding-top: 0.4rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .footer-left {
@@ -1131,7 +1141,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 .btn-text-action {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--text-secondary);
   font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
@@ -1144,19 +1154,19 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-text-action:hover {
-  color: #f1f5f9;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  background: var(--bg-subtle);
 }
 
 .btn-text-action.dismiss:hover {
-  color: #fca5a5;
-  background: rgba(239, 68, 68, 0.1);
+  color: var(--status-error, #fb7185);
+  background: var(--status-error-bg, rgba(239, 68, 68, 0.1));
 }
 
 .btn-confirm-link {
-  background: #2563eb;
-  border: 1px solid #3b82f6;
-  color: #ffffff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--on-accent);
   padding: 0.35rem 0.85rem;
   font-size: 0.75rem;
   font-weight: 500;
@@ -1169,7 +1179,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-confirm-link:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .btn-confirm-link:disabled {
@@ -1182,7 +1192,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
   position: fixed;
   inset: 0;
   z-index: 10000;
-  background: rgba(5, 7, 10, 0.8);
+  background: var(--overlay);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -1193,51 +1203,51 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 .zen-confirm-card {
   width: 100%;
   max-width: 440px;
-  background: #0f141c;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6);
-  color: #e2e8f0;
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
 }
 
 .confirm-icon-wrap {
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
+  background: var(--status-error-bg, rgba(239, 68, 68, 0.15));
+  color: var(--status-error, #fb7185);
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(239, 68, 68, 0.25);
+  border: 1px solid var(--status-error-border, rgba(239, 68, 68, 0.25));
 }
 
 .confirm-title {
   margin: 0;
   font-size: 1.0625rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 .confirm-body {
   margin: 0;
   font-size: 0.8125rem;
-  color: #cbd5e1;
+  color: var(--text-secondary);
   line-height: 1.45;
 }
 
 .confirm-note {
   margin: 0;
   font-size: 0.75rem;
-  color: #94a3b8;
-  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  background: var(--bg-subtle);
   padding: 0.5rem 0.65rem;
   border-radius: 6px;
-  border-left: 2px solid #64748b;
+  border-left: 2px solid var(--border-medium);
   line-height: 1.4;
 }
 
@@ -1250,9 +1260,9 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-dialog-secondary {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #cbd5e1;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
   padding: 0.45rem 0.85rem;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -1261,12 +1271,13 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-dialog-secondary:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
 .btn-dialog-danger {
-  background: #dc2626;
-  border: 1px solid #ef4444;
+  background: var(--danger, #dc2626);
+  border: 1px solid var(--danger, #ef4444);
   color: #ffffff;
   padding: 0.45rem 1rem;
   font-size: 0.8125rem;
@@ -1279,7 +1290,7 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .btn-dialog-danger:hover:not(:disabled) {
-  background: #b91c1c;
+  opacity: 0.9;
 }
 
 .alert-box {
@@ -1292,9 +1303,9 @@ function formatAmount(amt?: number | string | null, cur?: string | null): string
 }
 
 .alert-box.error {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  color: #fca5a5;
+  background: var(--status-error-bg, rgba(239, 68, 68, 0.12));
+  border: 1px solid var(--status-error-border, rgba(239, 68, 68, 0.25));
+  color: var(--status-error, #fb7185);
 }
 
 .spinner {

@@ -408,9 +408,10 @@ async function handleSave() {
 </script>
 
 <template>
-  <div
-    v-if="isOpen && receipt"
-    class="zen-modal-overlay"
+  <Teleport to="body">
+    <div
+      v-if="isOpen && receipt"
+      class="zen-modal-overlay"
     tabindex="-1"
     role="dialog"
     aria-modal="true"
@@ -999,18 +1000,19 @@ async function handleSave() {
       </footer>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>
 .zen-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--overlay, rgba(0, 0, 0, 0.75));
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 60;
+  z-index: 1050;
   padding: 1.5rem;
 }
 
